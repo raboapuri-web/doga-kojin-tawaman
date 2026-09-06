@@ -1,0 +1,106 @@
+name: Render Knowledge Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: Episode folder under episodes/
+        required: true
+        default: blush_full
+      force:
+        description: Regenerate cached plan/images/voice
+        required: false
+        type: boolean
+        default: false
+  push:
+    paths:
+      - 'trigger/**'
+
+concurrency:
+  group: knowledge-video-render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      VOICEVOX_URL: http://127.0.0.1:50021
+      VOICEVOX_SPEAKER_ID: '10000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify OpenAI API key
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Repository secret OPENAI_API_KEY is required."
+            exit 1
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk curl
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore generated image cache
+        uses: actions/cache@v4
+        with:
+          path: episodes/*/assets/images
+          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}
+          restore-keys: |
+            images-
+
+      - name: Restore VOICEVOX cache
+        uses: actions/cache@v4
+        with:
+          path: episodes/*/assets/audio/u*.wav
+          key: voice-${{ hashFiles('config/tts.json', 'config/tts_replacements.json', 'episodes/*/script.txt', 'episodes/*/tts_replacements.json') }}
+          restore-keys: |
+            voice-
+
+      - name: Start VOICEVOX Nemo Engine
+        run: |
+          docker pull voicevox/voicevox_nemo_engine:cpu-latest
+          docker run -d --name voicevox-nemo -p 127.0.0.1:50021:50121 voicevox/voicevox_nemo_engine:cpu-latest
+          for i in $(seq 1 240); do
+            if curl -fsS http://127.0.0.1:50021/version >/dev/null; then
+              echo "VOICEVOX Nemo ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs voicevox-nemo
+          exit 1
+
+      - name: Render
+        shell: bash
+        run: |
+          EPISODE="${{ github.event.inputs.episode || 'blush_full' }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          if [ "$FORCE" = "true" ]; then
+            python factory.py build --episode "$EPISODE" --force
+          else
+            python factory.py build --episode "$EPISODE"
+          fi
+
+      - name: Upload finished video
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-video-${{ github.event.inputs.episode || 'blush_full' }}
+          path: |
+            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/final.mp4
+            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/subtitles.srt
+            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/timeline.json
+            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/CREDITS.txt
+            episodes/${{ github.event.inputs.episode || 'blush_full' }}/work/scene_plan.json
+          if-no-files-found: error
+          retention-days: 30
