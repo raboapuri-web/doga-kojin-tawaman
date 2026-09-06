@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+venv/
+.venv/
+
+episodes/*/assets/images/
+episodes/*/assets/audio/
+episodes/*/work/
+episodes/*/output/
+
+!episodes/*/assets/.gitkeep
