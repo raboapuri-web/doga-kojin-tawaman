@@ -52,12 +52,12 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Restore generated image cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: episodes/*/assets/images
-          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}
+          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-${{ github.run_id }}
           restore-keys: |
-            images-
+            images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-
 
       - name: Restore VOICEVOX cache
         uses: actions/cache@v4
@@ -91,6 +91,14 @@ jobs:
           else
             python factory.py build --episode "$EPISODE"
           fi
+
+      - name: Save partial image cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: episodes/*/assets/images
+          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-${{ github.run_id }}
 
       - name: Upload finished video
         uses: actions/upload-artifact@v4
