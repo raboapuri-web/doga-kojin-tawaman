@@ -1,0 +1,14 @@
+{
+  "channel_style": "cinematic intellectual documentary still, realistic photography, restrained Japanese visual essay, moody low-saturation palette, dark navy, charcoal, old paper, gray, subtle warm practical light, red only as a restrained accent when narratively relevant, quiet nighttime atmosphere, natural human expressions, historically plausible details when needed, no sensationalism",
+  "negative_rules": [
+    "no text inside the generated image",
+    "no subtitles inside the generated image",
+    "no labels, charts, UI, logos, watermarks or legible documents",
+    "no generic stock-photo smile",
+    "no collage unless the narration explicitly requires comparison",
+    "no exaggerated fantasy unless the scene is explicitly conceptual",
+    "avoid repeating the same office meeting composition across unrelated scenes"
+  ],
+  "composition_rule": "The narration must remain understandable without the image. The image should directly support the exact current narration, not merely the overall episode topic. Prefer a concrete scene, experiment, object, historical setting, or grounded visual metaphor that matches this narration range.",
+  "aspect_rule": "compose for a 16:9 crop, keep important faces and objects away from extreme top and bottom edges"
+}
