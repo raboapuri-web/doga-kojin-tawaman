@@ -1,0 +1,3 @@
+episode=blush_full
+force=true
+reason=first semantic-scene full render in dedicated repository
