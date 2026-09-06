@@ -35,6 +35,24 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Resolve episode
+        shell: bash
+        run: |
+          INPUT_EPISODE="${{ github.event.inputs.episode }}"
+          if [ -n "$INPUT_EPISODE" ]; then
+            EPISODE="$INPUT_EPISODE"
+          elif [ -f trigger/episode.txt ]; then
+            EPISODE="$(tr -d '\r\n ' < trigger/episode.txt)"
+          else
+            EPISODE="blush_full"
+          fi
+          if [ ! -f "episodes/$EPISODE/script.txt" ]; then
+            echo "::error::Unknown episode: $EPISODE"
+            exit 1
+          fi
+          echo "EPISODE=$EPISODE" >> "$GITHUB_ENV"
+          echo "Rendering episode: $EPISODE"
+
       - name: Verify OpenAI API key
         shell: bash
         run: |
@@ -84,7 +102,6 @@ jobs:
       - name: Render
         shell: bash
         run: |
-          EPISODE="${{ github.event.inputs.episode || 'blush_full' }}"
           FORCE="${{ github.event.inputs.force || 'false' }}"
           if [ "$FORCE" = "true" ]; then
             python factory.py build --episode "$EPISODE" --force
@@ -103,12 +120,12 @@ jobs:
       - name: Upload finished video
         uses: actions/upload-artifact@v4
         with:
-          name: knowledge-video-${{ github.event.inputs.episode || 'blush_full' }}
+          name: knowledge-video-${{ env.EPISODE }}
           path: |
-            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/final.mp4
-            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/subtitles.srt
-            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/timeline.json
-            episodes/${{ github.event.inputs.episode || 'blush_full' }}/output/CREDITS.txt
-            episodes/${{ github.event.inputs.episode || 'blush_full' }}/work/scene_plan.json
+            episodes/${{ env.EPISODE }}/output/final.mp4
+            episodes/${{ env.EPISODE }}/output/subtitles.srt
+            episodes/${{ env.EPISODE }}/output/timeline.json
+            episodes/${{ env.EPISODE }}/output/CREDITS.txt
+            episodes/${{ env.EPISODE }}/work/scene_plan.json
           if-no-files-found: error
           retention-days: 30
