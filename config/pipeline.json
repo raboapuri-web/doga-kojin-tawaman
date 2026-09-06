@@ -1,13 +1,13 @@
 {
   "planner_model": "gpt-5.6-luna",
   "image_model": "gpt-image-2",
-  "image_quality": "high",
+  "image_quality": "medium",
   "image_size": "1536x1024",
-  "scene_target_chars": 125,
-  "scene_max_chars": 170,
+  "scene_target_chars": 185,
+  "scene_max_chars": 235,
   "tts_segment_max_chars": 38,
   "planner_batch_size": 18,
   "image_min_interval_sec": 13,
-  "image_max_retries": 8,
+  "image_max_retries": 4,
   "reuse_existing_images": true
 }
