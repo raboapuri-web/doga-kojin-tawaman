@@ -1,0 +1,20 @@
+{
+  "durationSeconds": 180,
+  "beats": [
+    {"id":"v13-b01","index":0,"start":0,"end":12},
+    {"id":"v13-b02","index":1,"start":12,"end":24},
+    {"id":"v13-b03","index":2,"start":24,"end":36},
+    {"id":"v13-b04","index":3,"start":36,"end":48},
+    {"id":"v13-b05","index":4,"start":48,"end":60},
+    {"id":"v13-b06","index":5,"start":60,"end":72},
+    {"id":"v13-b07","index":6,"start":72,"end":84},
+    {"id":"v13-b08","index":7,"start":84,"end":96},
+    {"id":"v13-b09","index":8,"start":96,"end":108},
+    {"id":"v13-b10","index":9,"start":108,"end":120},
+    {"id":"v13-b11","index":10,"start":120,"end":132},
+    {"id":"v13-b12","index":11,"start":132,"end":144},
+    {"id":"v13-b13","index":12,"start":144,"end":156},
+    {"id":"v13-b14","index":13,"start":156,"end":168},
+    {"id":"v13-b15","index":14,"start":168,"end":180}
+  ]
+}
