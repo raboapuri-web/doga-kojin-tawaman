@@ -6,6 +6,6 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const out=path.join(root,'public/audio');fs.mkdirSync(out,{recursive:true});
 const run=(args)=>execFileSync('ffmpeg',['-y','-loglevel','error',...args]);
 run(['-f','lavfi','-i','sine=frequency=82:duration=80','-f','lavfi','-i','sine=frequency=123:duration=80','-filter_complex','[0:a]volume=0.018[a0];[1:a]volume=0.010[a1];[a0][a1]amix=inputs=2,lowpass=f=600,afade=t=in:st=0:d=2,afade=t=out:st=76:d=4','-ar','48000',path.join(out,'bgm.wav')]);
-const specs={click:'sine=frequency=1200:duration=.08',whoosh:'anoisesrc=color=pink:duration=.35:amplitude=.12',pop:'sine=frequency=420:duration=.16',spark:'sine=frequency=1800:duration=.20',thump:'sine=frequency=85:duration=.22'};
-for(const [name,src] of Object.entries(specs)) run(['-f','lavfi','-i',src,'-af','afade=t=out:st=0:d=.2,volume=.45','-ar','48000',path.join(out,`${name}.wav`)]);
+const specs={click:'sine=frequency=1200:duration=0.08',whoosh:'anoisesrc=color=pink:duration=0.35:amplitude=0.12',pop:'sine=frequency=420:duration=0.16',spark:'sine=frequency=1800:duration=0.20',thump:'sine=frequency=85:duration=0.22'};
+for(const [name,src] of Object.entries(specs)) run(['-f','lavfi','-i',src,'-af','afade=t=out:st=0:d=0.2,volume=0.45','-ar','48000',path.join(out,`${name}.wav`)]);
 console.log('BGM/SFX ready');
