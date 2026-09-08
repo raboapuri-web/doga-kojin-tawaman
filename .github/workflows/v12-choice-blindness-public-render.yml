@@ -76,3 +76,5 @@ jobs:
           cp out/v12-choice-blindness.mp4 "out/${VIDEO_NAME}"
           TAG="v12-choice-blindness-${GITHUB_RUN_ID}"
           gh release create "$TAG" "out/${VIDEO_NAME}" out/v12-choice-blindness-contact-sheet.jpg --repo "$GITHUB_REPOSITORY" --title "V12 Choice Blindness Sample ${GITHUB_RUN_ID}" --notes "Story-linked one-minute Remotion test: lab room, portrait choice, sleight-of-hand swap, post-hoc explanation, Johansson et al. 2005 framing, Choice Blindness visualization, and reflective ending."
+
+# rerun after TSX syntax fix
