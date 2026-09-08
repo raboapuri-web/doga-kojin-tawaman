@@ -1,0 +1,35 @@
+name: Fix V12 Label Default
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-v12-label-default.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix Label default prop syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('v12-choice-blindness/src/V12ChoiceBlindness.tsx')
+          s = p.read_text()
+          target = "size=50,color:'#fff',opacity=1"
+          replacement = "size=50,color='#fff',opacity=1"
+          if target not in s:
+              raise SystemExit('Target Label default syntax not found')
+          p.write_text(s.replace(target, replacement, 1))
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v12-choice-blindness/src/V12ChoiceBlindness.tsx
+          git commit -m 'Fix V12 Label default prop syntax'
+          git push
