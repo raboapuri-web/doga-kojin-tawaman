@@ -1,0 +1,37 @@
+name: Fix V12 TSX Syntax
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-v12-tsx-syntax.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fix React.FC generic assignment tokenization
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('v12-choice-blindness/src/V12ChoiceBlindness.tsx')
+          s = p.read_text()
+          before = s.count('}>=')
+          s = s.replace('}>=', '}> =')
+          p.write_text(s)
+          after = s.count('}>=')
+          print(f'fixed occurrences: {before}; remaining: {after}')
+          if before == 0:
+              raise SystemExit('No target syntax found')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v12-choice-blindness/src/V12ChoiceBlindness.tsx
+          git commit -m 'Fix V12 React.FC TSX syntax'
+          git push
