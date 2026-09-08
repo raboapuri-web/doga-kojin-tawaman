@@ -1,0 +1,78 @@
+name: V13 BreakingDown Story Render
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v13-breakingdown-public-render.yml'
+      - 'v13-breakingdown/**'
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: v13-breakingdown
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Japanese fonts and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra ffmpeg
+          fc-cache -f
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Start VOICEVOX
+        run: |
+          docker pull voicevox/voicevox_engine:cpu-latest
+          docker run -d --rm --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in {1..90}; do
+            if curl -fsS http://127.0.0.1:50021/version >/dev/null; then
+              echo 'VOICEVOX ready'
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs voicevox || true
+          exit 1
+      - name: Generate measured narration
+        run: node scripts/generate-voicevox.mjs
+      - name: Generate BGM and SFX
+        run: node scripts/generate-audio.mjs
+      - name: Type check
+        run: npm run check
+      - name: Render MP4
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npm run render
+      - name: Verify full script video
+        run: |
+          test -s out/v13-breakingdown.mp4
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 out/v13-breakingdown.mp4)
+          echo "Rendered duration: ${DURATION}s"
+          python3 - <<'PY'
+          import subprocess
+          d=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','out/v13-breakingdown.mp4']).decode().strip())
+          assert 120 <= d <= 330, f'unexpected duration: {d}'
+          PY
+      - name: Create QA contact sheet
+        run: |
+          ffmpeg -y -loglevel error -i out/v13-breakingdown.mp4 -vf "fps=1/12,scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2:black,tile=5x5" -frames:v 1 -q:v 2 out/v13-breakingdown-contact-sheet.jpg
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VIDEO_NAME="knowledge-video-v13-breakingdown-${GITHUB_RUN_ID}.mp4"
+          cp out/v13-breakingdown.mp4 "out/${VIDEO_NAME}"
+          TAG="v13-breakingdown-${GITHUB_RUN_ID}"
+          gh release create "$TAG" "out/${VIDEO_NAME}" out/v13-breakingdown-contact-sheet.jpg --repo "$GITHUB_REPOSITORY" --title "V13 BreakingDown Story Test ${GITHUB_RUN_ID}" --notes "Full-script story-linked Remotion test. Fifteen distinct scenes visualize passive viewing, unresolved conflict, audition feud, SNS escalation, forced resolution in the ring, ordinary unresolved relationships, human-relationship finale, fighter backstory, hero/villain motivation, one-minute readability, and suspense before the answer."
