@@ -1,0 +1,189 @@
+name: V18 Bubble Cinematic Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v18-bubble-cinematic-production.yml'
+      - 'v18-bubble-cinematic/**'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    defaults:
+      run:
+        working-directory: v18-bubble-cinematic
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Japanese fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          fc-cache -f
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Reuse V17 measured narration and timing
+        uses: actions/download-artifact@v4
+        with:
+          name: v17-prepared
+          repository: raboapuri-web/knowledge-video-factory
+          run-id: 34356071168
+          github-token: ${{ github.token }}
+          path: v18-bubble-cinematic
+      - name: Type check cinematic scenes
+        run: npm run check
+      - name: Plan short render segments
+        id: plan
+        run: |
+          MATRIX="$(node scripts/plan-segments.mjs)"
+          echo "$MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+      - name: Upload prepared timing and narration
+        uses: actions/upload-artifact@v4
+        with:
+          name: v18-prepared
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            v18-bubble-cinematic/src/sync-timing.json
+            v18-bubble-cinematic/public/audio/narration.m4a
+
+  render:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: v18-bubble-cinematic
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Japanese font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          fc-cache -f
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Download measured timing
+        uses: actions/download-artifact@v4
+        with:
+          name: v18-prepared
+          path: v18-bubble-cinematic
+      - name: Render cinematic segment ${{ matrix.id }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          mkdir -p out
+          npx remotion render src/index.ts V18BubbleCinematic "out/segment-${{ matrix.id }}.mp4" \
+            --frames=${{ matrix.start }}-${{ matrix.end }} \
+            --codec=h264 \
+            --crf=19 \
+            --concurrency=2 \
+            --log=warn
+          test -s "out/segment-${{ matrix.id }}.mp4"
+      - name: Upload segment ${{ matrix.id }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v18-segment-${{ matrix.id }}
+          retention-days: 1
+          if-no-files-found: error
+          path: v18-bubble-cinematic/out/segment-${{ matrix.id }}.mp4
+
+  finalize:
+    needs: [prepare, render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: v18-bubble-cinematic
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download narration and timing
+        uses: actions/download-artifact@v4
+        with:
+          name: v18-prepared
+          path: v18-bubble-cinematic
+      - name: Download all rendered segments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v18-segment-*
+          path: v18-bubble-cinematic/parts
+          merge-multiple: true
+      - name: Generate BGM only
+        run: node scripts/generate-bgm.mjs
+      - name: Concatenate segments without re-encoding
+        run: |
+          mkdir -p out
+          find parts -maxdepth 1 -name 'segment-*.mp4' -print | sort -V | while read -r f; do
+            printf "file '%s'\n" "$(realpath "$f")"
+          done > out/concat.txt
+          ffmpeg -y -loglevel error -f concat -safe 0 -i out/concat.txt -c copy out/video-only.mp4
+      - name: Mix narration and BGM
+        run: |
+          ffmpeg -y -loglevel error \
+            -i out/video-only.mp4 \
+            -i public/audio/narration.m4a \
+            -i public/audio/bgm.m4a \
+            -filter_complex "[1:a]volume=1.0[vo];[2:a]volume=0.09[bg];[vo][bg]amix=inputs=2:duration=longest:dropout_transition=2[a]" \
+            -map 0:v:0 -map "[a]" \
+            -c:v copy -c:a aac -b:a 192k -movflags +faststart -shortest \
+            out/v18-bubble-cinematic-final.mp4
+      - name: Verify production duration
+        run: |
+          test -s out/v18-bubble-cinematic-final.mp4
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 out/v18-bubble-cinematic-final.mp4)
+          echo "Final duration: ${DURATION}s"
+          python3 - <<'PY'
+          import subprocess
+          d=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','out/v18-bubble-cinematic-final.mp4']).decode().strip())
+          assert 1100 <= d <= 1140, f'Unexpected production duration: {d:.2f}s'
+          PY
+      - name: Create QA contact sheet
+        run: |
+          ffmpeg -y -loglevel error -i out/v18-bubble-cinematic-final.mp4 \
+            -vf "fps=1/24,scale=240:135,tile=8x8" \
+            -frames:v 1 -q:v 2 out/v18-bubble-cinematic-contact-sheet.jpg
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VIDEO_NAME="knowledge-video-v18-bubble-cinematic-${GITHUB_RUN_ID}.mp4"
+          cp out/v18-bubble-cinematic-final.mp4 "out/${VIDEO_NAME}"
+          TAG="v18-bubble-cinematic-${GITHUB_RUN_ID}"
+          gh release create "$TAG" \
+            "out/${VIDEO_NAME}" \
+            out/v18-bubble-cinematic-contact-sheet.jpg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "V18 Bubble Cinematic Production ${GITHUB_RUN_ID}" \
+            --notes "Cinematic remake of V17 using the same 68-beat measured narration. Multi-object scenes, moving crowds, trains, cars, papers, factory robotics, conveyors, offices, households, policy rooms, banking scenes and layered parallax motion. Narration + BGM only, no SFX."
