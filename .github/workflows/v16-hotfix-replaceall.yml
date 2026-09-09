@@ -1,0 +1,47 @@
+name: V16 ReplaceAll Hotfix
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v16-hotfix-replaceall.yml']
+permissions:
+  contents: write
+  actions: write
+jobs:
+  fix-and-run:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+      - name: Replace replaceAll for current TS target
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('v16-weapon-convergence/src/index.tsx')
+          s=p.read_text()
+          replacements=[
+            (".replaceAll('しゅうれん','収斂')", ".split('しゅうれん').join('収斂')"),
+            (".replaceAll('へいたん','兵站')", ".split('へいたん').join('兵站')"),
+            (".replaceAll('きばきゅうへい','騎馬弓兵')", ".split('きばきゅうへい').join('騎馬弓兵')"),
+            (".replaceAll('ふくごうきゅう','複合弓')", ".split('ふくごうきゅう').join('複合弓')"),
+            (".replaceAll('たねがしま','種子島')", ".split('たねがしま').join('種子島')"),
+            (".replaceAll('けいろいぞんせい','経路依存性')", ".split('けいろいぞんせい').join('経路依存性')"),
+            (".replaceAll('ひんどいぞんせんたく','頻度依存選択')", ".split('ひんどいぞんせんたく').join('頻度依存選択')"),
+            (".replaceAll('しょへいかれんごう','諸兵科連合')", ".split('しょへいかれんごう').join('諸兵科連合')"),
+            (".replaceAll('あかのじょおう','赤の女王')", ".split('あかのじょおう').join('赤の女王')"),
+            (".replaceAll('じゅっぷん','10分')", ".split('じゅっぷん').join('10分')"),
+          ]
+          for a,b in replacements:
+            s=s.replace(a,b)
+          p.write_text(s)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add v16-weapon-convergence/src/index.tsx
+          git diff --cached --quiet || git commit -m 'Fix V16 string replacement compatibility'
+          git push origin HEAD:main
+      - name: Dispatch V16 production
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run v16-weapon-convergence-production.yml --repo "$GITHUB_REPOSITORY" --ref main
