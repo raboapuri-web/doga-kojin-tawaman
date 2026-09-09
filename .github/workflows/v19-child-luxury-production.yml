@@ -27,50 +27,39 @@ jobs:
       - name: Install tools and Japanese fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk python3-pip
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
           fc-cache -f
           cp ../v15-chiikawa/package.json package.json
           cp ../v15-chiikawa/tsconfig.json tsconfig.json
-          python3 -m pip install --break-system-packages pykakasi
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Install dependencies
         run: npm install
-      - name: Build pronunciation-safe hiragana narration
+      - name: Validate ChatGPT-curated narration script
         run: |
           python3 - <<'PY'
-          import json
-          from pykakasi import kakasi
+          import json,re
           src=json.load(open('src/script-data.json',encoding='utf-8'))
-          repl={
-            'OECD':'おーいーしーでぃー',
-            'GDP':'じーでぃーぴー',
-            'Excel':'えくせる',
-            'SNS':'えすえぬえす',
-            'PTA':'ぴーてぃーえー',
-            '1LDK':'いちえるでぃーけー',
-            '3LDK':'さんえるでぃーけー'
-          }
-          kks=kakasi()
-          out=[]
-          for b in src['beats']:
-            text=b['subtitle']
-            for a,z in repl.items(): text=text.replace(a,z)
-            parts=kks.convert(text)
-            hira=''.join(x.get('hira') or x.get('orig','') for x in parts)
-            out.append({'id':b['id'],'narration':hira})
-          json.dump({'beats':out},open('/tmp/v19-voice.json','w',encoding='utf-8'),ensure_ascii=False,indent=2)
-          # QA: narration must contain no CJK ideographs or ASCII letters.
-          import re
+          voice=json.load(open('src/speech-data.json',encoding='utf-8'))
+          src_ids=[b['id'] for b in src['beats']]
+          voice_ids=[b['id'] for b in voice['beats']]
+          if src_ids != voice_ids:
+            raise SystemExit('speech-data.json beat IDs/order do not match script-data.json')
           bad=[]
-          for b in out:
-            if re.search(r'[一-龯A-Za-z]',b['narration']): bad.append((b['id'],b['narration']))
+          for b in voice['beats']:
+            text=b.get('speech','').strip()
+            if not text:
+              bad.append((b['id'],'empty speech'))
+            # Risky notation must be resolved by ChatGPT before synthesis.
+            if re.search(r'[0-9A-Za-z]',text):
+              bad.append((b['id'],text))
           if bad:
-            print('Unsafe narration samples:',bad[:5])
-            raise SystemExit('Kanji/English remained in narration')
-          print(f'Pronunciation-safe beats: {len(out)}')
+            print('Unsafe curated narration:',bad[:10])
+            raise SystemExit('Curated narration still contains raw digits or ASCII letters')
+          print(f'Curated narration validated: {len(voice_ids)} beats')
+          print('Kanji are intentionally allowed to preserve Japanese context and VOICEVOX morphology.')
           PY
       - name: Start VOICEVOX
         run: |
@@ -79,15 +68,15 @@ jobs:
           for i in {1..90}; do curl -fsS http://127.0.0.1:50021/version >/dev/null && exit 0; sleep 2; done
           docker logs voicevox || true
           exit 1
-      - name: Generate measured narration
+      - name: Generate measured narration from curated speech
         run: |
           mkdir -p public/audio .voice-tmp
           cat > /tmp/v19voice.mjs <<'NODE'
           import fs from 'node:fs';import path from 'node:path';import {execFileSync} from 'node:child_process';
           const root=process.cwd();
           const script=JSON.parse(fs.readFileSync('src/script-data.json','utf8'));
-          const voice=JSON.parse(fs.readFileSync('/tmp/v19-voice.json','utf8'));
-          const voiceMap=new Map(voice.beats.map(b=>[b.id,b.narration]));
+          const voice=JSON.parse(fs.readFileSync('src/speech-data.json','utf8'));
+          const voiceMap=new Map(voice.beats.map(b=>[b.id,b.speech]));
           const base='http://127.0.0.1:50021';
           const speakers=await fetch(`${base}/speakers`).then(r=>r.json());
           const sp=speakers.find(s=>s.name==='青山龍星')??speakers[0];
@@ -95,14 +84,14 @@ jobs:
           console.log(`VOICEVOX ${sp.name}/${st.name}/${st.id}`);
           let cursor=0;const timings=[],files=[];
           for(let i=0;i<script.beats.length;i++){
-            const b=script.beats[i];const text=voiceMap.get(b.id);if(!text)throw new Error(`missing reading ${b.id}`);
+            const b=script.beats[i];const text=voiceMap.get(b.id);if(!text)throw new Error(`missing curated speech ${b.id}`);
             const q=await fetch(`${base}/audio_query?speaker=${st.id}&text=${encodeURIComponent(text)}`,{method:'POST'}).then(r=>r.json());
             q.speedScale=1.02;q.pitchScale=-.02;q.intonationScale=.90;q.prePhonemeLength=.08;q.postPhonemeLength=.10;
             const wav=Buffer.from(await fetch(`${base}/synthesis?speaker=${st.id}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(q)}).then(r=>r.arrayBuffer()));
             const raw=path.join(root,'.voice-tmp',`b-${String(i).padStart(2,'0')}.wav`),pad=path.join(root,'.voice-tmp',`b-${String(i).padStart(2,'0')}-p.wav`);
             fs.writeFileSync(raw,wav);execFileSync('ffmpeg',['-y','-loglevel','error','-i',raw,'-af','apad=pad_dur=0.16',pad]);
             const d=Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',pad],{encoding:'utf8'}).trim());
-            timings.push({id:b.id,index:i,start:cursor,end:cursor+d});cursor+=d;files.push(pad);console.log(`${b.id}: ${d.toFixed(2)}s`);
+            timings.push({id:b.id,index:i,start:cursor,end:cursor+d});cursor+=d;files.push(pad);console.log(`${b.id}: ${d.toFixed(2)}s :: ${text.slice(0,42)}`);
           }
           const list=path.join(root,'.voice-tmp/list.txt');fs.writeFileSync(list,files.map(f=>`file '${f}'`).join('\n'));
           const joined=path.join(root,'.voice-tmp/narration.wav');execFileSync('ffmpeg',['-y','-loglevel','error','-f','concat','-safe','0','-i',list,'-c','copy',joined]);
@@ -235,4 +224,4 @@ jobs:
           gh release create "$TAG" "out/${VIDEO}" out/v19-contact-sheet.jpg \
             --repo "$GITHUB_REPOSITORY" \
             --title "V19 Child Luxury Production ${GITHUB_RUN_ID}" \
-            --notes "67 narration-linked cinematic scenes. Original kanji/English subtitles are preserved while the VOICEVOX input is automatically converted to pronunciation-safe hiragana, with explicit readings for OECD/GDP/Excel/SNS/PTA/1LDK/3LDK. Aoyama Ryusei Normal. Measured-audio master sync. Narration + BGM only, no SFX. Parallel segmented Remotion render."
+            --notes "67 narration-linked cinematic scenes. Subtitles preserve the original text. VOICEVOX uses a separate ChatGPT-curated speech-data.json with explicit context-aware readings for ambiguous numbers, counters, acronyms and foreign terms; blanket kakasi conversion is disabled. Aoyama Ryusei Normal. Measured-audio master sync. Narration + BGM only, no SFX. Parallel segmented Remotion render."
