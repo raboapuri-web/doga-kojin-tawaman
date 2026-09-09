@@ -1,0 +1,159 @@
+name: V16 Weapon Convergence Production
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v16-weapon-convergence-production.yml'
+      - 'v16-weapon-convergence/**'
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    defaults:
+      run:
+        working-directory: v16-weapon-convergence
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          fc-cache -f
+          cp ../v15-chiikawa/package.json package.json
+          cp ../v15-chiikawa/tsconfig.json tsconfig.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Start VOICEVOX
+        run: |
+          docker pull voicevox/voicevox_engine:cpu-latest
+          docker run -d --rm --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in {1..90}; do curl -fsS http://127.0.0.1:50021/version >/dev/null && exit 0; sleep 2; done
+          docker logs voicevox || true
+          exit 1
+      - name: Generate measured narration
+        run: |
+          mkdir -p public/audio .voice-tmp
+          cat > /tmp/v16voice.mjs <<'NODE'
+          import fs from 'node:fs';import path from 'node:path';import {execFileSync} from 'node:child_process';
+          const root=process.cwd(),script=JSON.parse(fs.readFileSync('src/script-data.json','utf8')),base='http://127.0.0.1:50021';
+          const speakers=await fetch(`${base}/speakers`).then(r=>r.json());const sp=speakers.find(s=>s.name==='青山龍星')??speakers[0];const st=sp.styles.find(s=>s.name==='ノーマル')??sp.styles[0];console.log(`VOICEVOX ${sp.name}/${st.name}/${st.id}`);
+          let cursor=0;const timings=[],files=[];for(let i=0;i<script.beats.length;i++){const b=script.beats[i];const q=await fetch(`${base}/audio_query?speaker=${st.id}&text=${encodeURIComponent(b.narration)}`,{method:'POST'}).then(r=>r.json());q.speedScale=1.03;q.pitchScale=-.015;q.intonationScale=.92;q.prePhonemeLength=.07;q.postPhonemeLength=.09;const wav=Buffer.from(await fetch(`${base}/synthesis?speaker=${st.id}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(q)}).then(r=>r.arrayBuffer()));const raw=path.join(root,'.voice-tmp',`b-${String(i).padStart(2,'0')}.wav`),pad=path.join(root,'.voice-tmp',`b-${String(i).padStart(2,'0')}-p.wav`);fs.writeFileSync(raw,wav);execFileSync('ffmpeg',['-y','-loglevel','error','-i',raw,'-af','apad=pad_dur=0.14',pad]);const d=Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',pad],{encoding:'utf8'}).trim());timings.push({id:b.id,index:i,start:cursor,end:cursor+d});cursor+=d;files.push(pad);console.log(`${b.id}: ${d.toFixed(2)}s`)}
+          const list=path.join(root,'.voice-tmp/list.txt');fs.writeFileSync(list,files.map(f=>`file '${f}'`).join('\n'));const joined=path.join(root,'.voice-tmp/narration.wav');execFileSync('ffmpeg',['-y','-loglevel','error','-f','concat','-safe','0','-i',list,'-c','copy',joined]);const measured=Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',joined],{encoding:'utf8'}).trim());fs.writeFileSync('src/sync-timing.json',JSON.stringify({durationSeconds:measured+.25,beats:timings},null,2));execFileSync('ffmpeg',['-y','-loglevel','error','-i',joined,'-c:a','aac','-b:a','160k','-ar','48000','public/audio/narration.m4a']);console.log(`Narration duration: ${measured.toFixed(2)}s`);
+          NODE
+          node /tmp/v16voice.mjs
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Plan render segments
+        id: plan
+        run: |
+          MATRIX=$(node --input-type=module <<'NODE'
+          import fs from 'node:fs';const s=JSON.parse(fs.readFileSync('src/sync-timing.json','utf8')),fps=30,target=180,max=225;let start=0,startSec=0,last=-1;const seg=[];for(let i=0;i<s.beats.length;i++){const b=s.beats[i],isLast=i===s.beats.length-1,elapsed=b.end-startSec,nextToo=!isLast&&(s.beats[i+1].end-startSec)>max;if(isLast||elapsed>=target||nextToo){const end=isLast?Math.ceil(s.durationSeconds*fps)-1:Math.max(start,Math.round(b.end*fps)-1);seg.push({id:String(seg.length).padStart(2,'0'),start,end});last=end;start=end+1;startSec=(end+1)/fps}}if(last<Math.ceil(s.durationSeconds*fps)-1)seg.push({id:String(seg.length).padStart(2,'0'),start:last+1,end:Math.ceil(s.durationSeconds*fps)-1});console.log(JSON.stringify({include:seg}));
+          NODE
+          )
+          echo "$MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v16-prepared
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            v16-weapon-convergence/src/sync-timing.json
+            v16-weapon-convergence/public/audio/narration.m4a
+  render:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: v16-weapon-convergence
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          fc-cache -f
+          cp ../v15-chiikawa/package.json package.json
+          cp ../v15-chiikawa/tsconfig.json tsconfig.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - uses: actions/download-artifact@v4
+        with:
+          name: v16-prepared
+          path: v16-weapon-convergence
+      - name: Render segment ${{ matrix.id }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          mkdir -p out
+          npx remotion render src/index.tsx V16WeaponConvergence "out/segment-${{ matrix.id }}.mp4" --frames=${{ matrix.start }}-${{ matrix.end }} --codec=h264 --crf=20 --concurrency=2 --log=warn
+          test -s "out/segment-${{ matrix.id }}.mp4"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v16-segment-${{ matrix.id }}
+          retention-days: 1
+          if-no-files-found: error
+          path: v16-weapon-convergence/out/segment-${{ matrix.id }}.mp4
+  finalize:
+    needs: [prepare, render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: v16-weapon-convergence
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - uses: actions/download-artifact@v4
+        with:
+          name: v16-prepared
+          path: v16-weapon-convergence
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v16-segment-*
+          path: v16-weapon-convergence/parts
+          merge-multiple: true
+      - name: Generate BGM only
+        run: |
+          mkdir -p public/audio
+          D=$(node -e "const s=require('./src/sync-timing.json');console.log(Math.ceil(s.durationSeconds+2))")
+          FO=$((D-8))
+          ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=44:duration=${D}" -f lavfi -i "sine=frequency=66:duration=${D}" -f lavfi -i "anoisesrc=color=brown:duration=${D}:amplitude=0.012" -filter_complex "[0:a]volume=0.009,lowpass=f=150[a0];[1:a]volume=0.003,lowpass=f=220[a1];[2:a]lowpass=f=420,highpass=f=35,volume=0.32[a2];[a0][a1][a2]amix=inputs=3,afade=t=in:st=0:d=4,afade=t=out:st=${FO}:d=8" -c:a aac -b:a 128k -ar 48000 public/audio/bgm.m4a
+      - name: Concatenate video segments losslessly
+        run: |
+          mkdir -p out
+          find parts -maxdepth 1 -name 'segment-*.mp4' -print | sort -V | while read -r f; do printf "file '%s'\n" "$(realpath "$f")"; done > out/concat.txt
+          ffmpeg -y -loglevel error -f concat -safe 0 -i out/concat.txt -c copy out/video-only.mp4
+      - name: Mix narration and BGM
+        run: |
+          ffmpeg -y -loglevel error -i out/video-only.mp4 -i public/audio/narration.m4a -i public/audio/bgm.m4a -filter_complex "[1:a]volume=1.0[vo];[2:a]volume=0.10[bg];[vo][bg]amix=inputs=2:duration=longest:dropout_transition=2[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 192k -movflags +faststart -shortest out/v16-final.mp4
+      - name: Verify and QA
+        run: |
+          test -s out/v16-final.mp4
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 out/v16-final.mp4
+          ffmpeg -y -loglevel error -i out/v16-final.mp4 -vf "fps=1/35,scale=320:180,tile=6x6" -frames:v 1 -q:v 2 out/v16-contact-sheet.jpg
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VIDEO="knowledge-video-v16-weapon-convergence-${GITHUB_RUN_ID}.mp4"
+          cp out/v16-final.mp4 "out/${VIDEO}"
+          TAG="v16-weapon-convergence-${GITHUB_RUN_ID}"
+          gh release create "$TAG" "out/${VIDEO}" out/v16-contact-sheet.jpg --repo "$GITHUB_REPOSITORY" --title "V16 Weapon Convergence Production ${GITHUB_RUN_ID}" --notes "72 narration-linked scenes. Pronunciation-safe narration, kanji subtitles, narration + BGM only, parallel segmented Remotion render."
