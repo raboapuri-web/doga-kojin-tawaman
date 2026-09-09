@@ -1,0 +1,3 @@
+src/scenes.tsx(36,1219): error TS1145: '{' or JSX element expected.
+src/scenes.tsx(36,1222): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/scenes.tsx(36,1224): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
