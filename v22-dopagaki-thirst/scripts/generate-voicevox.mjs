@@ -12,11 +12,14 @@ fs.mkdirSync(audioDir,{recursive:true});
 fs.mkdirSync(tmp,{recursive:true});
 const base='http://127.0.0.1:50021';
 const speed=1.03;
+const previewSeconds=Number(process.env.PREVIEW_SECONDS||0);
+const previewTarget=previewSeconds>0?previewSeconds+5:0;
 
 const speakers=await fetch(`${base}/speakers`).then(r=>r.json());
 const speaker=speakers.find(s=>s.name==='青山龍星')??speakers[0];
 const style=speaker.styles.find(s=>s.name==='ノーマル')??speaker.styles[0];
 console.log(`VOICEVOX: ${speaker.name} / ${style.name} / ${style.id}`);
+if(previewSeconds>0) console.log(`Preview narration target: ${previewSeconds}s (+5s safety margin)`);
 const files=[]; const timings=[]; let cursor=0;
 for(let i=0;i<script.beats.length;i++){
   const beat=script.beats[i];
@@ -29,7 +32,11 @@ for(let i=0;i<script.beats.length;i++){
   execFileSync('ffmpeg',['-y','-loglevel','error','-i',raw,'-af','apad=pad_dur=0.18',padded]);
   const duration=Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',padded],{encoding:'utf8'}).trim());
   timings.push({id:beat.id,index:i,start:cursor,end:cursor+duration}); cursor+=duration; files.push(padded);
-  console.log(`${beat.id}: ${duration.toFixed(2)}s`);
+  console.log(`${beat.id}: ${duration.toFixed(2)}s / total ${cursor.toFixed(2)}s`);
+  if(previewTarget>0&&cursor>=previewTarget){
+    console.log(`Preview narration complete after ${timings.length} beats`);
+    break;
+  }
 }
 const list=path.join(tmp,'concat.txt');
 fs.writeFileSync(list,files.map(f=>`file '${f.replaceAll("'","'\\''")}'`).join('\n'));
