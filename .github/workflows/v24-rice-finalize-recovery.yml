@@ -1,0 +1,100 @@
+name: V24 Rice Finalize Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [v24-rice]
+    paths:
+      - '.github/workflows/v24-rice-finalize-recovery.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: v24-rice
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download narration and timing from completed V24 render
+        uses: actions/download-artifact@v4
+        with:
+          name: v24-rice-prepared
+          path: v24-rice
+          repository: ${{ github.repository }}
+          run-id: 34509211790
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download all completed V24 render segments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v24-rice-segment-*
+          path: v24-rice/parts
+          merge-multiple: true
+          repository: ${{ github.repository }}
+          run-id: 34509211790
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate compatible restrained cinematic BGM
+        run: |
+          mkdir -p public/audio out
+          D=$(python3 - <<'PY'
+          import json, math
+          with open('src/sync-timing.json') as f: d=json.load(f)
+          print(math.ceil(d['durationSeconds']+4))
+          PY
+          )
+          FADE=$(python3 - <<PY
+          d=$D
+          print(max(0,d-12))
+          PY
+          )
+          ffmpeg -y -loglevel error \
+            -f lavfi -i "sine=frequency=41:duration=$D" \
+            -f lavfi -i "sine=frequency=62:duration=$D" \
+            -f lavfi -i "sine=frequency=123:duration=$D" \
+            -f lavfi -i "sine=frequency=246:duration=$D" \
+            -f lavfi -i "anoisesrc=color=brown:duration=$D:amplitude=0.010" \
+            -filter_complex "[0:a]volume=0.0055,lowpass=f=120[a0];[1:a]volume=0.0035,lowpass=f=180,tremolo=f=0.10:d=0.25[a1];[2:a]volume=0.0015,lowpass=f=300,tremolo=f=0.12:d=0.35[a2];[3:a]volume=0.0007,highpass=f=180,lowpass=f=700,tremolo=f=0.10:d=0.65[a3];[4:a]lowpass=f=580,highpass=f=30,volume=0.18[a4];[a0][a1][a2][a3][a4]amix=inputs=5,afade=t=in:st=0:d=7,afade=t=out:st=$FADE:d=12,acompressor=threshold=-28dB:ratio=1.7:attack=50:release=600" \
+            -c:a aac -b:a 144k -ar 48000 public/audio/bgm.m4a
+      - name: Concatenate segments without re-encoding
+        run: |
+          find parts -maxdepth 1 -name 'segment-*.mp4' -print | sort -V | while read -r f; do
+            printf "file '%s'\n" "$(realpath "$f")"
+          done > out/concat.txt
+          ffmpeg -y -loglevel error -f concat -safe 0 -i out/concat.txt -c copy out/video-only.mp4
+      - name: Mix narration and BGM
+        run: |
+          ffmpeg -y -loglevel error \
+            -i out/video-only.mp4 \
+            -i public/audio/narration.m4a \
+            -i public/audio/bgm.m4a \
+            -filter_complex "[1:a]volume=1.0[vo];[2:a]volume=0.072[bg];[vo][bg]amix=inputs=2:duration=longest:dropout_transition=2[a]" \
+            -map 0:v:0 -map "[a]" \
+            -c:v copy -c:a aac -b:a 192k -movflags +faststart -shortest \
+            out/v24-rice-final.mp4
+      - name: Verify render and create QA
+        run: |
+          test -s out/v24-rice-final.mp4
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate -show_entries format=duration -of json out/v24-rice-final.mp4 > out/v24-rice-metadata.json
+          cat out/v24-rice-metadata.json
+          ffmpeg -y -loglevel error -i out/v24-rice-final.mp4 \
+            -vf "fps=1/45,scale=320:180,tile=5x4" \
+            -frames:v 1 -q:v 2 out/v24-rice-contact-sheet.jpg
+      - name: Upload completed movie
+        uses: actions/upload-artifact@v4
+        with:
+          name: v24-rice-final-recovered-${{ github.run_id }}
+          retention-days: 5
+          if-no-files-found: error
+          path: |
+            v24-rice/out/v24-rice-final.mp4
+            v24-rice/out/v24-rice-contact-sheet.jpg
+            v24-rice/out/v24-rice-metadata.json
