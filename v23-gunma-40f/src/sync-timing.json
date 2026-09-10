@@ -1,0 +1,6 @@
+{
+  "durationSeconds": 660,
+  "beats": [
+    {"id":"s01","index":0,"start":0,"end":10}
+  ]
+}
