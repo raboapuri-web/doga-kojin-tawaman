@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+// V22 iteration: segment planning entry point.
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const sync=JSON.parse(fs.readFileSync(path.join(root,'src/sync-timing.json'),'utf8'));
 const fps=30,targetSeconds=150,maxSeconds=190,segments=[];
