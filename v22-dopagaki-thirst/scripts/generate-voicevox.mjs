@@ -12,7 +12,8 @@ fs.mkdirSync(audioDir,{recursive:true});
 fs.mkdirSync(tmp,{recursive:true});
 const base='http://127.0.0.1:50021';
 const speed=1.03;
-const previewSeconds=Number(process.env.PREVIEW_SECONDS||0);
+const branchDefaultPreview=process.env.GITHUB_REF_NAME&&process.env.GITHUB_REF_NAME!=='main'?90:0;
+const previewSeconds=Number(process.env.PREVIEW_SECONDS||branchDefaultPreview);
 const previewTarget=previewSeconds>0?previewSeconds+5:0;
 
 const speakers=await fetch(`${base}/speakers`).then(r=>r.json());
