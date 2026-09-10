@@ -3,7 +3,7 @@ name: V22 Dopagaki Thirst Production
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, v22-iteration]
     paths:
       - '.github/workflows/v22-dopagaki-thirst-production.yml'
       - 'v22-dopagaki-thirst/**'
@@ -50,8 +50,10 @@ jobs:
           exit 1
       - name: Generate measured narration
         run: node scripts/generate-voicevox.mjs
-      - name: Plan short render segments
+      - name: Plan render segments
         id: plan
+        env:
+          PREVIEW_SECONDS: ${{ github.ref_name == 'main' && '0' || '90' }}
         run: |
           MATRIX="$(node scripts/plan-segments.mjs)"
           echo "$MATRIX"
@@ -166,21 +168,37 @@ jobs:
             -map 0:v:0 -map "[a]" \
             -c:v copy -c:a aac -b:a 192k -movflags +faststart -shortest \
             out/v22-dopagaki-thirst-final.mp4
-      - name: Verify production duration
+      - name: Verify render duration
+        env:
+          RENDER_MODE: ${{ github.ref_name == 'main' && 'final' || 'preview' }}
         run: |
           test -s out/v22-dopagaki-thirst-final.mp4
           ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 out/v22-dopagaki-thirst-final.mp4
           python3 - <<'PY'
-          import subprocess
+          import os, subprocess
           d=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1','out/v22-dopagaki-thirst-final.mp4']).decode().strip())
-          assert 600 <= d <= 2100, f'Unexpected production duration: {d:.2f}s'
+          if os.environ['RENDER_MODE']=='final':
+              assert 600 <= d <= 2100, f'Unexpected production duration: {d:.2f}s'
+          else:
+              assert 85 <= d <= 95, f'Unexpected preview duration: {d:.2f}s'
           PY
       - name: Create QA contact sheet
         run: |
           ffmpeg -y -loglevel error -i out/v22-dopagaki-thirst-final.mp4 \
-            -vf "fps=1/24,scale=240:135,tile=8x8" \
+            -vf "fps=1/12,scale=320:180,tile=4x4" \
             -frames:v 1 -q:v 2 out/v22-dopagaki-thirst-contact-sheet.jpg
+      - name: Upload iteration preview
+        if: github.ref_name != 'main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: v22-iteration-preview-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            v22-dopagaki-thirst/out/v22-dopagaki-thirst-final.mp4
+            v22-dopagaki-thirst/out/v22-dopagaki-thirst-contact-sheet.jpg
       - name: Publish GitHub Release
+        if: github.ref_name == 'main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
