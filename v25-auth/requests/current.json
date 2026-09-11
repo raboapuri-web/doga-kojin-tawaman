@@ -1,9 +1,9 @@
 {
-  "request_id": "chatgpt-smoke-20260912-0001",
+  "request_id": "chatgpt-smoke-20260912-0002",
   "requested_by": "chatgpt",
-  "title": "V25 PIN gate smoke test",
+  "title": "V25 PIN gate smoke test after Cloudflare deploy",
   "purpose": "generate-scene-assets",
   "max_budget_usd": 3.0,
   "mode": "authorization-test",
-  "created_at": "2026-09-12T00:00:00+09:00"
+  "created_at": "2026-09-12T00:40:00+09:00"
 }
