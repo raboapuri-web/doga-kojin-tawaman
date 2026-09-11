@@ -27,7 +27,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       VOICEVOX_URL: http://127.0.0.1:50021
-      VOICEVOX_SPEAKER_ID: '10000'
+      VOICEVOX_SPEAKER_ID: '13'
     steps:
       - uses: actions/checkout@v4
 
@@ -85,18 +85,18 @@ jobs:
           restore-keys: |
             voice-
 
-      - name: Start VOICEVOX Nemo Engine
+      - name: Start VOICEVOX Engine for Aoyama Ryusei
         run: |
-          docker pull voicevox/voicevox_nemo_engine:cpu-latest
-          docker run -d --name voicevox-nemo -p 127.0.0.1:50021:50121 voicevox/voicevox_nemo_engine:cpu-latest
+          docker pull voicevox/voicevox_engine:cpu-latest
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
           for i in $(seq 1 240); do
             if curl -fsS http://127.0.0.1:50021/version >/dev/null; then
-              echo 'VOICEVOX Nemo ready'
+              echo 'VOICEVOX ready: Aoyama Ryusei speaker 13'
               exit 0
             fi
             sleep 2
           done
-          docker logs voicevox-nemo
+          docker logs voicevox
           exit 1
 
       - name: Render
@@ -104,6 +104,10 @@ jobs:
         run: |
           if [ "$EPISODE" = "minato_60s_budget_test" ]; then
             echo "Running capped 60s cinematic budget test"
+            rm -f episodes/minato_60s_budget_test/assets/images/s*.png
+            sed -i 's/speaker: int = 10000/speaker: int = 13/' experiments/minato_60s/render_test.py
+            sed -i 's/FontSize=28/FontSize=20/' experiments/minato_60s/render_test.py
+            sed -i 's/Narration: VOICEVOX Nemo/Narration: VOICEVOX Aoyama Ryusei/' experiments/minato_60s/render_test.py
             python experiments/minato_60s/render_test.py
           else
             FORCE="${{ github.event.inputs.force || 'false' }}"
