@@ -1,0 +1,99 @@
+name: V25 OpenAI Owner Guard
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Authorized OpenAI operation"
+        required: true
+        default: "auth-check"
+        type: choice
+        options:
+          - auth-check
+  push:
+    branches:
+      - v25-ai
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v25-openai-owner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    name: Verify repository owner
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.guard.outputs.allowed }}
+    steps:
+      - name: Reject unauthorized caller
+        id: guard
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
+          EXPECTED_ACTOR: raboapuri-web
+          EXPECTED_PUSH_REF: refs/heads/v25-ai
+        run: |
+          set -euo pipefail
+          echo "allowed=false" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_REPOSITORY" != "$EXPECTED_REPOSITORY" ]]; then
+            echo "Blocked: unexpected repository."
+            exit 1
+          fi
+
+          if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
+            echo "Blocked: OpenAI API may only be used by the repository owner."
+            exit 1
+          fi
+
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              ;;
+            push)
+              if [[ "$GITHUB_REF" != "$EXPECTED_PUSH_REF" ]]; then
+                echo "Blocked: API-enabled pushes are restricted to v25-ai."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Blocked: unsupported event $GITHUB_EVENT_NAME."
+              exit 1
+              ;;
+          esac
+
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "Authorized owner: $GITHUB_ACTOR"
+
+  openai-auth-check:
+    name: Verify OpenAI secret without exposing it
+    needs: authorize
+    if: needs.authorize.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate OPENAI_API_KEY
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+            echo "OPENAI_API_KEY is not configured."
+            exit 1
+          fi
+
+          http_code=$(curl --silent --show-error \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${OPENAI_API_KEY}" \
+            https://api.openai.com/v1/models)
+
+          if [[ "$http_code" != "200" ]]; then
+            echo "OpenAI credential validation failed with HTTP $http_code."
+            exit 1
+          fi
+
+          echo "OpenAI credential is valid. Secret value was not printed."
