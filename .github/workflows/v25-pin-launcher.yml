@@ -29,3 +29,5 @@ jobs:
             https://api.github.com/repos/raboapuri-web/doga-kojin-tawaman/actions/workflows/v25-openai-guard.yml/dispatches \
             --data '{"ref":"v25-ai","inputs":{"purpose":"request-pin-approval","max_budget_usd":"3.00"}}'
           echo "Dispatched V25 owner PIN approval test."
+
+# smoke-test-run: 2
