@@ -51,6 +51,7 @@ if (gatewayUrl.protocol !== 'https:') {
 
 const base = gatewayUrl.toString().replace(/\/$/, '');
 const purpose = parsed.get('purpose') ?? 'ai-generation';
+const OIDC_AUDIENCE = 'doga-kojin-tawaman-v25-email-otp';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -64,12 +65,41 @@ function setOutput(name, value, {mask = false} = {}) {
   }
 }
 
+let cachedOidcToken = null;
+async function getGithubOidcToken() {
+  if (cachedOidcToken) return cachedOidcToken;
+
+  const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!requestUrl || !requestToken) {
+    throw new Error('GitHub OIDC environment is unavailable. Workflow requires id-token: write.');
+  }
+
+  const url = new URL(requestUrl);
+  url.searchParams.set('audience', OIDC_AUDIENCE);
+
+  const response = await fetch(url, {
+    headers: {authorization: `Bearer ${requestToken}`},
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to obtain GitHub OIDC token (${response.status})`);
+  }
+
+  const body = await response.json();
+  if (!body?.value) throw new Error('GitHub OIDC response did not include a token');
+
+  cachedOidcToken = body.value;
+  return cachedOidcToken;
+}
+
 async function requestJson(path, init = {}) {
+  const oidcToken = await getGithubOidcToken();
   const response = await fetch(`${base}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
       'user-agent': 'doga-kojin-tawaman-v25',
+      authorization: `Bearer ${oidcToken}`,
       ...(init.headers ?? {}),
     },
   });
@@ -103,7 +133,7 @@ async function preflight() {
     throw new Error('Gateway preflight did not return status=ready');
   }
 
-  console.log('Gateway preflight accepted.');
+  console.log('Gateway preflight accepted with GitHub OIDC.');
 }
 
 async function requestAuthorization() {
