@@ -1,15 +1,20 @@
-name: V25 OpenAI Owner Guard
+name: V25 Email OTP Gateway Guard
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Authorized OpenAI operation"
+      purpose:
+        description: "AI operation purpose"
         required: true
-        default: "auth-check"
+        default: "preflight"
         type: choice
         options:
-          - auth-check
+          - preflight
+          - request-email-otp
+      max_budget_usd:
+        description: "Maximum OpenAI spend authorized for this run (future gateway)"
+        required: true
+        default: "3.00"
   push:
     branches:
       - v25-ai
@@ -18,23 +23,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: v25-openai-owner-${{ github.ref }}
+  group: v25-email-otp-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
+  EXPECTED_ACTOR: raboapuri-web
+  EXPECTED_PUSH_REF: refs/heads/v25-ai
+
 jobs:
-  authorize:
-    name: Verify repository owner
+  authorize-github-context:
+    name: Verify GitHub execution context
     runs-on: ubuntu-latest
     outputs:
       allowed: ${{ steps.guard.outputs.allowed }}
     steps:
-      - name: Reject unauthorized caller
+      - name: Reject unsupported repository, actor, branch or event
         id: guard
         shell: bash
-        env:
-          EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
-          EXPECTED_ACTOR: raboapuri-web
-          EXPECTED_PUSH_REF: refs/heads/v25-ai
         run: |
           set -euo pipefail
           echo "allowed=false" >> "$GITHUB_OUTPUT"
@@ -44,8 +50,10 @@ jobs:
             exit 1
           fi
 
+          # This is only a first-line filter. A shared GitHub account is NOT
+          # considered proof of human identity. Email OTP will be authoritative.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
-            echo "Blocked: OpenAI API may only be used by the repository owner."
+            echo "Blocked: unexpected GitHub actor."
             exit 1
           fi
 
@@ -54,46 +62,77 @@ jobs:
               ;;
             push)
               if [[ "$GITHUB_REF" != "$EXPECTED_PUSH_REF" ]]; then
-                echo "Blocked: API-enabled pushes are restricted to v25-ai."
+                echo "Blocked: pushes are restricted to v25-ai."
                 exit 1
               fi
               ;;
             *)
-              echo "Blocked: unsupported event $GITHUB_EVENT_NAME."
+              echo "Blocked: pull requests, forks, comments and other events cannot enter the AI path."
               exit 1
               ;;
           esac
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
-          echo "Authorized owner: $GITHUB_ACTOR"
+          echo "GitHub context accepted. Human identity still requires email OTP."
 
-  openai-auth-check:
-    name: Verify OpenAI secret without exposing it
-    needs: authorize
-    if: needs.authorize.outputs.allowed == 'true'
+  policy-check:
+    name: Confirm OpenAI is not directly reachable
+    needs: authorize-github-context
+    if: needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Validate OPENAI_API_KEY
+      - uses: actions/checkout@v4
+
+      - name: Validate V25 gateway-only policy
         shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-            echo "OPENAI_API_KEY is not configured."
+          if grep -R --line-number --exclude='v25-openai-guard.yml' --exclude-dir='.git' \
+            -E 'secrets\.OPENAI_API_KEY|api\.openai\.com' \
+            .github v25-auth 2>/dev/null; then
+            echo "Blocked: V25 contains a direct OpenAI credential/API path."
             exit 1
           fi
 
-          http_code=$(curl --silent --show-error \
-            --output /dev/null \
-            --write-out "%{http_code}" \
-            --header "Authorization: Bearer ${OPENAI_API_KEY}" \
-            https://api.openai.com/v1/models)
+          echo "Policy OK: V25 does not directly consume OPENAI_API_KEY or api.openai.com."
 
-          if [[ "$http_code" != "200" ]]; then
-            echo "OpenAI credential validation failed with HTTP $http_code."
+      - name: Explain gateway state
+        shell: bash
+        run: |
+          echo "Email OTP gateway is scaffolded but not deployed yet."
+          echo "No OpenAI API request is performed by this workflow."
+          echo "Future authorization will bind repository/run_id/SHA/ref/budget and require a one-time email approval."
+
+  gateway-preflight:
+    name: Email OTP gateway preflight
+    needs:
+      - authorize-github-context
+      - policy-check
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.purpose == 'request-email-otp' &&
+      needs.authorize-github-context.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse until gateway is explicitly configured
+        shell: bash
+        env:
+          AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${AUTH_GATEWAY_URL:-}" ]]; then
+            echo "Gateway is intentionally not configured yet. No API usage occurred."
             exit 1
           fi
 
-          echo "OpenAI credential is valid. Secret value was not printed."
+          node v25-auth/gateway-client.mjs preflight \
+            --url "$AUTH_GATEWAY_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --actor "$GITHUB_ACTOR" \
+            --max-budget-usd "${{ github.event.inputs.max_budget_usd }}"
