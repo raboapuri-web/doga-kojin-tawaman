@@ -1,0 +1,39 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "doga-kojin-tawaman-auth-gateway",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-11",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AUTHORIZATIONS",
+        "class_name": "AuthorizationState"
+      }
+    ]
+  },
+  "exports": {
+    "AuthorizationState": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "OIDC_AUDIENCE": "doga-kojin-tawaman-v25-email-otp",
+    "EXPECTED_REPOSITORY": "raboapuri-web/doga-kojin-tawaman",
+    "EXPECTED_REPOSITORY_ID": "1364189380",
+    "EXPECTED_ACTOR": "raboapuri-web",
+    "EXPECTED_ACTOR_ID": "314691408",
+    "EXPECTED_REF": "refs/heads/v25-ai",
+    "EXPECTED_WORKFLOW_REF": "raboapuri-web/doga-kojin-tawaman/.github/workflows/v25-openai-guard.yml@refs/heads/v25-ai",
+    "AUTH_TTL_SECONDS": "300",
+    "MAX_BUDGET_USD": "25"
+  },
+  "secrets": {
+    "required": [
+      "RESEND_API_KEY",
+      "OWNER_EMAIL",
+      "EMAIL_FROM",
+      "EXECUTION_TOKEN_SECRET"
+    ]
+  }
+}
