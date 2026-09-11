@@ -19,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: v25-pin-approval-${{ github.ref }}
-  cancel-in-progress: true
+  group: v25-pin-approval-${{ github.run_id }}
+  cancel-in-progress: false
 
 env:
   EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
