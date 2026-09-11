@@ -28,7 +28,7 @@ jobs:
           import os
           from openai import OpenAI, APIStatusError
 
-          client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+          client = OpenAI(api_key=os.environ['OPENAI_API_KEY'], max_retries=0)
           try:
               result = client.images.generate(
                   model='gpt-image-1',
