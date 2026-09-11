@@ -1,0 +1,54 @@
+name: OpenAI Image Diagnostic
+
+on:
+  push:
+    paths:
+      - 'diag-trigger/**'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install OpenAI SDK
+        run: pip install 'openai>=3.13.0'
+
+      - name: Make exactly one gpt-image request and print request id
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from openai import OpenAI, APIStatusError
+
+          client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
+          try:
+              result = client.images.generate(
+                  model='gpt-image-1',
+                  prompt='A plain neutral gray studio backdrop, no text, diagnostic test image.',
+                  size='1024x1024',
+                  quality='low',
+                  n=1,
+              )
+              request_id = getattr(result, '_request_id', None)
+              print('DIAGNOSTIC_RESULT=success')
+              print(f'x-request-id={request_id}')
+          except APIStatusError as exc:
+              request_id = getattr(exc, 'request_id', None)
+              if not request_id and getattr(exc, 'response', None) is not None:
+                  request_id = exc.response.headers.get('x-request-id')
+              print('DIAGNOSTIC_RESULT=api_status_error')
+              print(f'status_code={exc.status_code}')
+              print(f'x-request-id={request_id}')
+              print(f'error={exc}')
+          except Exception as exc:
+              print('DIAGNOSTIC_RESULT=other_error')
+              print(f'error={type(exc).__name__}: {exc}')
+          PY
