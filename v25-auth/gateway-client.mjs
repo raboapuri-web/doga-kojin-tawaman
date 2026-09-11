@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import {appendFileSync} from 'node:fs';
+
 const args = process.argv.slice(2);
 const command = args.shift();
 
@@ -48,6 +50,19 @@ if (gatewayUrl.protocol !== 'https:') {
 }
 
 const base = gatewayUrl.toString().replace(/\/$/, '');
+const purpose = parsed.get('purpose') ?? 'ai-generation';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function setOutput(name, value, {mask = false} = {}) {
+  if (mask) console.log(`::add-mask::${value}`);
+  const outputFile = process.env.GITHUB_OUTPUT;
+  if (outputFile) {
+    appendFileSync(outputFile, `${name}=${value}\n`, 'utf8');
+  } else if (!mask) {
+    console.log(`${name}=${value}`);
+  }
+}
 
 async function requestJson(path, init = {}) {
   const response = await fetch(`${base}${path}`, {
@@ -74,7 +89,7 @@ async function requestJson(path, init = {}) {
   return body;
 }
 
-if (command === 'preflight') {
+async function preflight() {
   const result = await requestJson('/v1/preflight', {
     method: 'POST',
     body: JSON.stringify({
@@ -89,15 +104,14 @@ if (command === 'preflight') {
   }
 
   console.log('Gateway preflight accepted.');
-  process.exit(0);
 }
 
-if (command === 'request-authorization') {
+async function requestAuthorization() {
   const result = await requestJson('/v1/authorizations', {
     method: 'POST',
     body: JSON.stringify({
       ...context,
-      purpose: parsed.get('purpose') ?? 'ai-generation',
+      purpose,
       requested_at: new Date().toISOString(),
       auth_version: 1,
     }),
@@ -107,8 +121,65 @@ if (command === 'request-authorization') {
     throw new Error('Gateway did not create a pending email OTP authorization');
   }
 
-  console.log(`authorization_id=${result.authorization_id}`);
-  console.log('Email OTP approval requested.');
+  setOutput('authorization_id', result.authorization_id);
+  console.log('Email OTP approval requested. The recipient is controlled by the gateway.');
+  return result.authorization_id;
+}
+
+async function waitForApproval(authorizationId) {
+  const timeoutSeconds = Number(parsed.get('timeout-seconds') ?? '300');
+  const pollSeconds = Number(parsed.get('poll-seconds') ?? '5');
+
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 30 || timeoutSeconds > 600) {
+    throw new Error('timeout-seconds must be between 30 and 600');
+  }
+  if (!Number.isFinite(pollSeconds) || pollSeconds < 2 || pollSeconds > 30) {
+    throw new Error('poll-seconds must be between 2 and 30');
+  }
+
+  const deadline = Date.now() + timeoutSeconds * 1000;
+
+  while (Date.now() < deadline) {
+    const result = await requestJson(`/v1/authorizations/${encodeURIComponent(authorizationId)}`);
+
+    if (result?.status === 'approved') {
+      if (!result.execution_token) {
+        throw new Error('Approved authorization did not include an execution token');
+      }
+      setOutput('execution_token', result.execution_token, {mask: true});
+      if (result.expires_at) setOutput('execution_token_expires_at', result.expires_at);
+      console.log('Email approval accepted. Scoped execution token issued and masked.');
+      return;
+    }
+
+    if (result?.status === 'denied' || result?.status === 'expired') {
+      throw new Error(`Authorization ${result.status}`);
+    }
+
+    if (result?.status !== 'pending_email_otp') {
+      throw new Error(`Unexpected authorization status: ${result?.status ?? '<missing>'}`);
+    }
+
+    await sleep(pollSeconds * 1000);
+  }
+
+  throw new Error('Email approval timed out');
+}
+
+if (command === 'preflight') {
+  await preflight();
+  process.exit(0);
+}
+
+if (command === 'request-authorization') {
+  await requestAuthorization();
+  process.exit(0);
+}
+
+if (command === 'request-and-wait') {
+  await preflight();
+  const authorizationId = await requestAuthorization();
+  await waitForApproval(authorizationId);
   process.exit(0);
 }
 
