@@ -37,7 +37,7 @@ if (!Number.isFinite(context.max_budget_usd) || context.max_budget_usd <= 0 || c
 if (context.repository !== 'raboapuri-web/doga-kojin-tawaman') {
   throw new Error('Unexpected repository');
 }
-if (context.actor !== 'raboapuri-web') {
+if (context.actor !== 'github-actions[bot]') {
   throw new Error('Unexpected GitHub actor');
 }
 if (context.ref !== 'refs/heads/v25-ai') {
