@@ -1,0 +1,5 @@
+episode=minato_60s_budget_test
+voice=Aoyama Ryusei speaker 13
+subtitles=smaller
+image_policy=5 medium human + 3 low scenery
+reason=API key updated
