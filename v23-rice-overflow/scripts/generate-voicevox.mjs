@@ -13,6 +13,12 @@ fs.mkdirSync(tmp,{recursive:true});
 const base='http://127.0.0.1:50021';
 const speed=1.04;
 
+// Keep captions/original script untouched. Only the string sent to VOICEVOX is
+// normalized so single-kanji readings do not drift to on-yomi in literary narration.
+const normalizeTts=(text)=>text
+  .replaceAll('米','こめ')
+  .replaceAll('金','かね');
+
 const speakers=await fetch(`${base}/speakers`).then(r=>r.json());
 const speaker=speakers.find(s=>s.name==='青山龍星')??speakers[0];
 const style=speaker.styles.find(s=>s.name==='ノーマル')??speaker.styles[0];
@@ -23,7 +29,8 @@ const timings=[];
 let cursor=0;
 for(let i=0;i<script.beats.length;i++){
   const beat=script.beats[i];
-  const qRes=await fetch(`${base}/audio_query?speaker=${style.id}&text=${encodeURIComponent(beat.narration)}`,{method:'POST'});
+  const ttsText=normalizeTts(beat.narration);
+  const qRes=await fetch(`${base}/audio_query?speaker=${style.id}&text=${encodeURIComponent(ttsText)}`,{method:'POST'});
   if(!qRes.ok) throw new Error(`audio_query failed ${qRes.status}`);
   const q=await qRes.json();
   q.speedScale=speed;
