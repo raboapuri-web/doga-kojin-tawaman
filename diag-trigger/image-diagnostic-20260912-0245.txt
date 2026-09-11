@@ -1,0 +1,1 @@
+One-shot diagnostic run to capture x-request-id for gpt-image-1.
