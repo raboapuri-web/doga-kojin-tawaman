@@ -28,7 +28,7 @@ concurrency:
 
 env:
   EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
-  EXPECTED_ACTOR: raboapuri-web
+  EXPECTED_ACTOR: github-actions[bot]
   EXPECTED_PUSH_REF: refs/heads/v25-ai
   AUTH_GATEWAY_URL: https://fancy-frog-8692v25-auth-gateway.zhenyuan0803.workers.dev
 
@@ -51,8 +51,9 @@ jobs:
             exit 1
           fi
 
-          # First-line machine/account filter only. A shared GitHub account is
-          # never accepted as proof of the human operator's identity.
+          # GitHub account identity is not human identity. Bot-dispatched runs
+          # are permitted only because the Cloudflare-only owner PIN is still
+          # required before any provider call can be authorized.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
             echo "Blocked: unexpected GitHub actor."
             exit 1
@@ -62,6 +63,7 @@ jobs:
             workflow_dispatch)
               ;;
             push)
+              # Push events only perform non-billable policy checks.
               if [[ "$GITHUB_REF" != "$EXPECTED_PUSH_REF" ]]; then
                 echo "Blocked: pushes are restricted to v25-ai."
                 exit 1
@@ -103,7 +105,7 @@ jobs:
         run: |
           echo "Owner PIN gateway is scaffolded."
           echo "Push runs perform policy checks only and never request billable AI work."
-          echo "Future authorization binds repository/run_id/SHA/ref/purpose/budget to one browser PIN approval."
+          echo "Authorization binds repository/run_id/SHA/ref/purpose/budget to one browser PIN approval."
 
   gateway-authorization:
     name: Request owner PIN authorization
