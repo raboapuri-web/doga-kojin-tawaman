@@ -1,0 +1,13 @@
+{
+  "slug": "minato_60s_budget_test",
+  "title": "30歳で結婚したいと言っていた彼女は35歳で港区にいた — 60秒テスト",
+  "mode": "budgeted_cinematic_test",
+  "target_duration_sec": 60,
+  "image_budget": {
+    "max_images": 8,
+    "medium_people": 5,
+    "low_scenery": 3,
+    "retry_limit": 0
+  },
+  "notes": "人物はMedium、風景・建物はLow。8枚を16カットに展開して10分300円設計を検証する。"
+}
