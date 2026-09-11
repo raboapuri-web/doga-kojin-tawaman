@@ -13,9 +13,12 @@ fs.mkdirSync(tmp,{recursive:true});
 const base='http://127.0.0.1:50021';
 const speed=1.04;
 
-// Keep captions/original script untouched. Only the string sent to VOICEVOX is
+const resolveNarration=(text)=>text
+  .replace('二袋目は納戸に押し込んだ。','二袋目は廊下の収納に押し込んだ。');
+
+// Keep captions/original script spelling intact where possible. Only the string sent to VOICEVOX is
 // normalized so single-kanji readings do not drift to on-yomi in literary narration.
-const normalizeTts=(text)=>text
+const normalizeTts=(text)=>resolveNarration(text)
   .replaceAll('米','こめ')
   .replaceAll('金','かね');
 
