@@ -30,6 +30,7 @@ env:
   EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
   EXPECTED_ACTOR: raboapuri-web
   EXPECTED_PUSH_REF: refs/heads/v25-ai
+  AUTH_GATEWAY_URL: https://fancy-frog-8692v25-auth-gateway.zhenyuan0803.workers.dev
 
 jobs:
   authorize-github-context:
@@ -125,22 +126,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require deployed authorization gateway
+      - name: Check deployed authorization gateway URL
         shell: bash
-        env:
-          AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
         run: |
           set -euo pipefail
-          if [[ -z "${AUTH_GATEWAY_URL:-}" ]]; then
-            echo "Gateway URL is not configured. No AI API usage occurred."
+          if [[ "$AUTH_GATEWAY_URL" != https://*.workers.dev ]]; then
+            echo "Gateway URL is invalid."
             exit 1
           fi
+          echo "Using gateway: $AUTH_GATEWAY_URL"
 
       - name: Request PIN approval and wait for owner
         id: pin
         shell: bash
-        env:
-          AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
         run: |
           set -euo pipefail
           node v25-auth/gateway-client.mjs request-and-wait \
