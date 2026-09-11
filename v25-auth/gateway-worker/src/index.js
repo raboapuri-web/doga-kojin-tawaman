@@ -361,8 +361,8 @@ export default {
         }
 
         if (request.method === 'POST') {
-          const origin = request.headers.get('origin');
-          if (origin && origin !== url.origin) return html('<h2>無効な送信元です。</h2>', 403);
+          const fetchSite = request.headers.get('sec-fetch-site');
+          if (fetchSite === 'cross-site') return html('<h2>無効な送信元です。</h2>', 403);
           if (!env.OWNER_APPROVAL_SECRET) return html('<h2>承認PINが未設定です。</h2>', 503);
 
           const form = await request.formData();
