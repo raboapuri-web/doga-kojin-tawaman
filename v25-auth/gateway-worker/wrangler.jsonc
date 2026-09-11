@@ -18,7 +18,7 @@
     }
   },
   "vars": {
-    "OIDC_AUDIENCE": "doga-kojin-tawaman-v25-email-otp",
+    "OIDC_AUDIENCE": "doga-kojin-tawaman-v25-pin-approval",
     "EXPECTED_REPOSITORY": "raboapuri-web/doga-kojin-tawaman",
     "EXPECTED_REPOSITORY_ID": "1364189380",
     "EXPECTED_ACTOR": "raboapuri-web",
@@ -30,9 +30,7 @@
   },
   "secrets": {
     "required": [
-      "RESEND_API_KEY",
-      "OWNER_EMAIL",
-      "EMAIL_FROM",
+      "OWNER_APPROVAL_SECRET",
       "EXECUTION_TOKEN_SECRET"
     ]
   }
