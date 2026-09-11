@@ -28,7 +28,7 @@ const html = (body, status = 200) =>
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
       'x-frame-options': 'DENY',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     },
   });
 
@@ -49,12 +49,6 @@ const decodeB64url = (value) => {
 const decodeJwtPart = (value) => JSON.parse(new TextDecoder().decode(decodeB64url(value)));
 
 const sha256 = async (value) => b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', te.encode(value))));
-
-const randomToken = (bytes = 32) => {
-  const data = new Uint8Array(bytes);
-  crypto.getRandomValues(data);
-  return b64url(data);
-};
 
 const safeEqual = (a, b) => {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
@@ -173,46 +167,6 @@ function validateContext(body, claims, env) {
   };
 }
 
-async function sendApprovalEmail(env, approvalUrl, record) {
-  const subject = `V25 AI生成の承認 / Run ${record.run_id}`;
-  const body = {
-    from: env.EMAIL_FROM,
-    to: [env.OWNER_EMAIL],
-    subject,
-    html: `
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.6;color:#151515;max-width:620px;margin:auto">
-        <h2>V25 AI生成の承認</h2>
-        <p>この実行を許可する場合だけ、5分以内に下のボタンを押してください。</p>
-        <table style="border-collapse:collapse;width:100%;font-size:14px">
-          <tr><td style="padding:6px 0;color:#666">Repository</td><td>${escapeHtml(record.repository)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Branch</td><td>${escapeHtml(record.ref)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Run ID</td><td>${escapeHtml(record.run_id)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Commit</td><td>${escapeHtml(record.commit_sha)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Purpose</td><td>${escapeHtml(record.purpose)}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">上限</td><td>$${escapeHtml(record.max_budget_usd.toFixed(2))}</td></tr>
-        </table>
-        <p style="margin:28px 0">
-          <a href="${escapeHtml(approvalUrl)}" style="display:inline-block;background:#111;color:white;text-decoration:none;padding:12px 20px;border-radius:8px">この実行を承認する</a>
-        </p>
-        <p style="font-size:13px;color:#666">心当たりがなければ何もせず、このメールを削除してください。リンクは1回限り・5分で失効します。</p>
-      </div>
-    `,
-  };
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Email provider failed (${response.status}): ${text.slice(0, 300)}`);
-  }
-}
-
 async function signExecutionToken(env, record, authorizationId) {
   const now = Math.floor(Date.now() / 1000);
   const exp = Math.min(Math.floor(record.expires_at / 1000), now + 300);
@@ -276,43 +230,48 @@ export class AuthorizationState extends DurableObject {
 
   async fetch(request) {
     const url = new URL(request.url);
+
     if (request.method === 'POST' && url.pathname === '/init') {
       const existing = await this.ctx.storage.get('record');
       if (existing) return json({ error: 'already_initialized' }, 409);
       const body = await request.json();
       await this.ctx.storage.put('record', body.record);
-      await this.ctx.storage.put('approval_hash', body.approval_hash);
       await this.ctx.storage.put('attempts', 0);
-      return json({ status: 'pending_email_otp' });
+      return json({ status: 'pending_pin' });
     }
 
     if (request.method === 'POST' && url.pathname === '/approve') {
       const record = await this.ctx.storage.get('record');
       if (!record) return json({ error: 'authorization_not_found' }, 404);
       if (record.status === 'approved') return json({ status: 'approved', record });
-      if (record.status === 'denied') return json({ status: 'denied', record }, 403);
+      if (record.status === 'denied') return json({ status: 'denied', record });
       if (Date.now() >= record.expires_at) {
         record.status = 'expired';
         await this.ctx.storage.put('record', record);
-        return json({ status: 'expired', record }, 410);
+        return json({ status: 'expired', record });
       }
 
       const body = await request.json();
-      const expected = await this.ctx.storage.get('approval_hash');
-      if (!safeEqual(String(body.approval_hash ?? ''), String(expected ?? ''))) {
+      if (body.pin_valid !== true) {
         const attempts = Number((await this.ctx.storage.get('attempts')) ?? 0) + 1;
         await this.ctx.storage.put('attempts', attempts);
         if (attempts >= 5) {
           record.status = 'denied';
+          record.denied_at = Date.now();
           await this.ctx.storage.put('record', record);
+          return json({ status: 'denied', record, attempts_remaining: 0 });
         }
-        return json({ error: 'approval_token_invalid' }, 403);
+        return json({
+          status: 'pending_pin',
+          record,
+          error: 'pin_invalid',
+          attempts_remaining: 5 - attempts,
+        });
       }
 
       record.status = 'approved';
       record.approved_at = Date.now();
       await this.ctx.storage.put('record', record);
-      await this.ctx.storage.delete('approval_hash');
       return json({ status: 'approved', record });
     }
 
@@ -322,23 +281,61 @@ export class AuthorizationState extends DurableObject {
       record.status = 'denied';
       record.denied_at = Date.now();
       await this.ctx.storage.put('record', record);
-      await this.ctx.storage.delete('approval_hash');
       return json({ status: 'denied' });
     }
 
     if (request.method === 'GET' && url.pathname === '/status') {
       const record = await this.ctx.storage.get('record');
       if (!record) return json({ error: 'authorization_not_found' }, 404);
-      if (record.status === 'pending_email_otp' && Date.now() >= record.expires_at) {
+      if (record.status === 'pending_pin' && Date.now() >= record.expires_at) {
         record.status = 'expired';
         await this.ctx.storage.put('record', record);
-        await this.ctx.storage.delete('approval_hash');
       }
-      return json({ status: record.status, record });
+      const attempts = Number((await this.ctx.storage.get('attempts')) ?? 0);
+      return json({ status: record.status, record, attempts_remaining: Math.max(0, 5 - attempts) });
     }
 
     return json({ error: 'not_found' }, 404);
   }
+}
+
+function approvalPage(record, authorizationId, options = {}) {
+  const status = options.status ?? record.status;
+  const message = options.message ?? '';
+  const attemptsRemaining = options.attemptsRemaining;
+  const expiresAt = new Date(record.expires_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  const disabled = status !== 'pending_pin';
+
+  let stateMessage = message;
+  if (!stateMessage && status === 'approved') stateMessage = 'この実行は承認済みです。';
+  if (!stateMessage && status === 'denied') stateMessage = 'この実行は拒否されました。';
+  if (!stateMessage && status === 'expired') stateMessage = 'この承認リクエストは期限切れです。';
+
+  return html(`<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V25 AI実行承認</title>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f6f7f9;color:#171717;margin:0;padding:24px">
+  <main style="max-width:620px;margin:40px auto;background:white;border:1px solid #e5e7eb;border-radius:16px;padding:28px;box-shadow:0 12px 35px rgba(0,0,0,.06)">
+    <h1 style="font-size:24px;margin:0 0 8px">V25 AI実行承認</h1>
+    <p style="color:#666;margin:0 0 24px">このGitHub Actions実行だけを許可します。PINはGitHub側には送信されません。</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px">
+      <tr><td style="padding:7px 0;color:#777;width:120px">Run ID</td><td>${escapeHtml(record.run_id)}</td></tr>
+      <tr><td style="padding:7px 0;color:#777">Purpose</td><td>${escapeHtml(record.purpose)}</td></tr>
+      <tr><td style="padding:7px 0;color:#777">Budget上限</td><td>$${escapeHtml(record.max_budget_usd.toFixed(2))}</td></tr>
+      <tr><td style="padding:7px 0;color:#777">期限</td><td>${escapeHtml(expiresAt)}</td></tr>
+    </table>
+    ${stateMessage ? `<p style="padding:12px 14px;border-radius:10px;background:#f3f4f6">${escapeHtml(stateMessage)}</p>` : ''}
+    ${disabled ? '' : `
+      <form method="post" action="/approve/${escapeHtml(authorizationId)}" style="margin-top:20px">
+        <label for="pin" style="display:block;font-weight:600;margin-bottom:8px">承認PIN / パスコード</label>
+        <input id="pin" name="pin" type="password" autocomplete="current-password" required autofocus style="box-sizing:border-box;width:100%;font-size:20px;padding:13px 14px;border:1px solid #c9ced6;border-radius:10px">
+        ${Number.isFinite(attemptsRemaining) ? `<p style="font-size:13px;color:#777">残り試行回数: ${escapeHtml(attemptsRemaining)}</p>` : ''}
+        <button type="submit" style="margin-top:10px;width:100%;border:0;border-radius:10px;padding:13px 16px;background:#111;color:white;font-size:16px;font-weight:700;cursor:pointer">このRunを承認</button>
+      </form>
+    `}
+  </main>
+</body>`);
 }
 
 export default {
@@ -347,22 +344,60 @@ export default {
       const url = new URL(request.url);
 
       if (request.method === 'GET' && url.pathname === '/health') {
-        return json({ status: 'ok', email_auth: 'magic_link', provider_proxy: 'disabled' });
+        return json({ status: 'ok', human_auth: 'owner_pin', provider_proxy: 'disabled' });
       }
 
       const approvalMatch = url.pathname.match(/^\/approve\/([0-9a-f-]{36})$/i);
-      if (request.method === 'GET' && approvalMatch) {
+      if (approvalMatch) {
         const authorizationId = approvalMatch[1];
-        const rawToken = url.searchParams.get('token') ?? '';
-        if (!rawToken) return html('<h2>承認リンクが無効です。</h2>', 400);
-        const approvalHash = await sha256(rawToken);
         const stub = env.AUTHORIZATIONS.get(env.AUTHORIZATIONS.idFromName(authorizationId));
-        const result = await stubJson(stub, '/approve', {
-          method: 'POST',
-          body: JSON.stringify({ approval_hash: approvalHash }),
-        });
-        if (result.status !== 'approved') return html('<h2>承認できませんでした。</h2>', 403);
-        return html(`<!doctype html><meta charset="utf-8"><title>承認完了</title><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:48px;max-width:680px;margin:auto"><h1>承認しました</h1><p>Run ${escapeHtml(result.record.run_id)} のAI生成を許可しました。</p><p>このタブは閉じて大丈夫です。</p></body>`);
+
+        if (request.method === 'GET') {
+          const result = await stubJson(stub, '/status');
+          return approvalPage(result.record, authorizationId, {
+            status: result.status,
+            attemptsRemaining: result.attempts_remaining,
+          });
+        }
+
+        if (request.method === 'POST') {
+          const origin = request.headers.get('origin');
+          if (origin && origin !== url.origin) return html('<h2>無効な送信元です。</h2>', 403);
+          if (!env.OWNER_APPROVAL_SECRET) return html('<h2>承認PINが未設定です。</h2>', 503);
+
+          const form = await request.formData();
+          const submittedPin = String(form.get('pin') ?? '');
+          const [submittedHash, expectedHash] = await Promise.all([
+            sha256(submittedPin),
+            sha256(env.OWNER_APPROVAL_SECRET),
+          ]);
+          const result = await stubJson(stub, '/approve', {
+            method: 'POST',
+            body: JSON.stringify({ pin_valid: safeEqual(submittedHash, expectedHash) }),
+          });
+
+          if (result.status === 'approved') {
+            return approvalPage(result.record, authorizationId, {
+              status: 'approved',
+              message: `Run ${result.record.run_id} を承認しました。このタブは閉じて大丈夫です。`,
+            });
+          }
+          if (result.status === 'denied') {
+            return approvalPage(result.record, authorizationId, {
+              status: 'denied',
+              message: 'PIN試行回数の上限に達したため、このRunは拒否されました。',
+              attemptsRemaining: 0,
+            });
+          }
+          if (result.status === 'expired') {
+            return approvalPage(result.record, authorizationId, { status: 'expired' });
+          }
+          return approvalPage(result.record, authorizationId, {
+            status: 'pending_pin',
+            message: 'PINが違います。',
+            attemptsRemaining: result.attempts_remaining,
+          });
+        }
       }
 
       const claims = await verifyGithubOidc(request, env);
@@ -370,24 +405,32 @@ export default {
       if (request.method === 'POST' && url.pathname === '/v1/preflight') {
         const body = await parseJson(request);
         validateContext(body, claims, env);
-        for (const name of ['RESEND_API_KEY', 'OWNER_EMAIL', 'EMAIL_FROM', 'EXECUTION_TOKEN_SECRET']) {
+        for (const name of ['OWNER_APPROVAL_SECRET', 'EXECUTION_TOKEN_SECRET']) {
           if (!env[name]) throw new HttpError(503, `gateway_secret_missing:${name}`);
         }
-        return json({ status: 'ready', email_auth: 'magic_link', ttl_seconds: Number(env.AUTH_TTL_SECONDS ?? '300') });
+        if (String(env.OWNER_APPROVAL_SECRET).length < 8) {
+          throw new HttpError(503, 'gateway_secret_too_short:OWNER_APPROVAL_SECRET');
+        }
+        return json({
+          status: 'ready',
+          human_auth: 'owner_pin',
+          ttl_seconds: Number(env.AUTH_TTL_SECONDS ?? '300'),
+        });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/authorizations') {
         const body = await parseJson(request);
         const context = validateContext(body, claims, env);
         if (!PURPOSE_ALLOWLIST.has(context.purpose)) throw new HttpError(400, 'purpose_not_allowed');
+        if (!env.OWNER_APPROVAL_SECRET || !env.EXECUTION_TOKEN_SECRET) {
+          throw new HttpError(503, 'gateway_secrets_missing');
+        }
 
         const ttlSeconds = Math.min(Number(env.AUTH_TTL_SECONDS ?? '300'), 300);
         const authorizationId = crypto.randomUUID();
-        const approvalToken = randomToken(32);
-        const approvalHash = await sha256(approvalToken);
         const record = {
           ...context,
-          status: 'pending_email_otp',
+          status: 'pending_pin',
           requested_at: Date.now(),
           expires_at: Date.now() + ttlSeconds * 1000,
         };
@@ -395,21 +438,14 @@ export default {
         const stub = env.AUTHORIZATIONS.get(env.AUTHORIZATIONS.idFromName(authorizationId));
         await stubJson(stub, '/init', {
           method: 'POST',
-          body: JSON.stringify({ record, approval_hash: approvalHash }),
+          body: JSON.stringify({ record }),
         });
 
-        const approvalUrl = `${url.origin}/approve/${authorizationId}?token=${encodeURIComponent(approvalToken)}`;
-        try {
-          await sendApprovalEmail(env, approvalUrl, record);
-        } catch (error) {
-          await stubJson(stub, '/deny', { method: 'POST', body: '{}' });
-          console.error('approval_email_failed', error instanceof Error ? error.message : String(error));
-          throw new HttpError(502, 'approval_email_failed');
-        }
-
+        const approvalUrl = `${url.origin}/approve/${authorizationId}`;
         return json({
           authorization_id: authorizationId,
-          status: 'pending_email_otp',
+          status: 'pending_pin',
+          approval_url: approvalUrl,
           expires_at: new Date(record.expires_at).toISOString(),
         }, 202);
       }
