@@ -100,8 +100,8 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      authorization_id: ${{ steps.pin.outputs.authorization_id }}
-      approval_url: ${{ steps.pin.outputs.approval_url }}
+      authorization_id: ${{ steps.pin_request.outputs.authorization_id }}
+      approval_url: ${{ steps.pin_request.outputs.approval_url }}
       execution_token: ${{ steps.pin.outputs.execution_token }}
       execution_token_expires_at: ${{ steps.pin.outputs.execution_token_expires_at }}
     steps:
@@ -117,12 +117,51 @@ jobs:
           fi
           echo "Using gateway: $AUTH_GATEWAY_URL"
 
-      - name: Request PIN approval and wait for owner
+      - name: Request owner PIN authorization
+        id: pin_request
+        shell: bash
+        run: |
+          set -euo pipefail
+          node v25-auth/gateway-client.mjs request-authorization \
+            --url "$AUTH_GATEWAY_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --actor "$GITHUB_ACTOR" \
+            --purpose "generate-scene-assets" \
+            --max-budget-usd "${{ github.event.inputs.max_budget_usd }}"
+
+      - name: Write PIN approval descriptor
+        shell: bash
+        env:
+          AUTHORIZATION_ID: ${{ steps.pin_request.outputs.authorization_id }}
+          APPROVAL_URL: ${{ steps.pin_request.outputs.approval_url }}
+          APPROVAL_EXPIRES_AT: ${{ steps.pin_request.outputs.authorization_expires_at }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg authorization_id "$AUTHORIZATION_ID" \
+            --arg approval_url "$APPROVAL_URL" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg expires_at "$APPROVAL_EXPIRES_AT" \
+            '{authorization_id:$authorization_id,approval_url:$approval_url,run_id:$run_id,expires_at:$expires_at}' \
+            > "$RUNNER_TEMP/v25-pin-approval.json"
+
+      - name: Publish PIN approval descriptor
+        uses: actions/upload-artifact@v4
+        with:
+          name: v25-pin-approval-${{ github.run_id }}
+          path: ${{ runner.temp }}/v25-pin-approval.json
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Wait for owner PIN approval
         id: pin
         shell: bash
         run: |
           set -euo pipefail
-          node v25-auth/gateway-client.mjs request-and-wait \
+          node v25-auth/gateway-client.mjs wait-authorization \
             --url "$AUTH_GATEWAY_URL" \
             --repository "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" \
@@ -131,6 +170,7 @@ jobs:
             --actor "$GITHUB_ACTOR" \
             --purpose "generate-scene-assets" \
             --max-budget-usd "${{ github.event.inputs.max_budget_usd }}" \
+            --authorization-id "${{ steps.pin_request.outputs.authorization_id }}" \
             --timeout-seconds "300" \
             --poll-seconds "5"
 
