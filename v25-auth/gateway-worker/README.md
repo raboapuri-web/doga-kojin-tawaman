@@ -1,42 +1,50 @@
-# V25 Email Authorization Gateway
+# V25 Owner PIN Authorization Gateway
 
-Cloudflare Worker scaffold for human approval before any billable AI request.
+Cloudflare Worker for human approval before any billable AI request.
 
 ## Current state
 
 - GitHub Actions authenticates to this gateway with GitHub OIDC.
 - The gateway validates repository, repository ID, actor, actor ID, branch, workflow ref, run ID and workflow SHA.
 - A successful request creates a five-minute authorization record in a SQLite-backed Durable Object.
-- Approval is sent only to the gateway-owned `OWNER_EMAIL`; GitHub cannot select or override the recipient.
-- The email contains a single-use random Magic Link.
+- The gateway returns a browser approval URL to the GitHub Actions run.
+- The human approver opens that URL and enters a Cloudflare-only PIN/passcode.
+- The PIN/passcode is never stored in GitHub and is never returned to GitHub Actions.
+- Each authorization allows at most five incorrect PIN attempts and expires after five minutes.
 - After approval, GitHub receives a short-lived scoped execution token, never the provider credential.
 - `/v1/execute` intentionally returns `503` until the provider credential is moved out of GitHub and the proxy is explicitly enabled.
 
 ## Required Worker secrets
 
-Do not put these values in this public repository.
+Do not put these values in this public repository or in GitHub Secrets.
 
-- `RESEND_API_KEY` — Resend key restricted to sending email where possible.
-- `OWNER_EMAIL` — the one human email allowed to approve runs.
-- `EMAIL_FROM` — verified sender address used by Resend.
+- `OWNER_APPROVAL_SECRET` — owner-only approval PIN/passcode. Use at least 8 characters; a longer passphrase is better.
 - `EXECUTION_TOKEN_SECRET` — random high-entropy secret used to sign short-lived execution tokens.
 
 The provider API credential is intentionally **not** part of this Worker yet.
 
 ## Non-secret policy values
 
-`wrangler.jsonc` pins the expected GitHub repository, immutable repository ID, actor, actor ID, branch and workflow reference. Changing those values requires a code review/commit.
+`wrangler.jsonc` pins the expected GitHub repository, immutable repository ID, actor, actor ID, branch and workflow reference. Changing those values requires a code change.
 
-## Later deployment sequence
+## Browser approval flow
 
-1. Create a Cloudflare Workers account/project.
-2. Configure the four Worker secrets above using the Cloudflare dashboard or `wrangler secret put`.
-3. Deploy this Worker.
-4. Set the resulting HTTPS URL in GitHub as `AUTH_GATEWAY_URL`.
-5. Test `workflow_dispatch -> request-email-otp` and approve one Magic Link.
-6. Only after that test succeeds, move the provider API credential from GitHub to the gateway and enable `/v1/execute`.
-7. Remove the old provider credential from GitHub repository secrets.
+1. Run `V25 Owner PIN Gateway Guard` with `request-pin-approval`.
+2. GitHub OIDC authenticates the workflow to the gateway.
+3. The Action log and Step Summary show an approval URL.
+4. Open the URL and enter the Cloudflare-only owner PIN/passcode.
+5. The gateway marks that single run approved and the Action receives a short-lived execution token.
+6. The approval expires after five minutes and is bound to repository + run ID + SHA + ref + purpose + budget.
 
-## Security properties
+## Deployment sequence
 
-A shared GitHub login is not considered human identity. GitHub OIDC proves which workflow/run is calling; possession of the owner mailbox proves the human approver. Authorization is bound to one `repository + run_id + commit SHA + ref + purpose + budget` tuple and expires after five minutes.
+1. Deploy this Worker from the `v25-ai` branch.
+2. In Cloudflare Worker Settings -> Variables and Secrets, create `OWNER_APPROVAL_SECRET` and `EXECUTION_TOKEN_SECRET` as encrypted secrets.
+3. Set the Worker HTTPS URL in GitHub as `AUTH_GATEWAY_URL`.
+4. Test one `request-pin-approval` run and approve it from the browser page.
+5. Only after that test succeeds, move `OPENAI_API_KEY` from GitHub to Cloudflare and enable the provider proxy.
+6. Delete the old `OPENAI_API_KEY` GitHub repository secret and close any legacy direct-API workflow paths.
+
+## Security note
+
+A shared GitHub login is not treated as human identity. GitHub OIDC proves which workflow/run is calling; possession of the owner-only Cloudflare PIN/passcode proves the human approver. Because the approval URL may be visible in public Actions logs, the URL alone never authorizes a run.
