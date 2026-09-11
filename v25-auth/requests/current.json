@@ -1,9 +1,9 @@
 {
-  "request_id": "chatgpt-smoke-20260912-0005",
+  "request_id": "chatgpt-smoke-20260912-0006",
   "requested_by": "chatgpt",
-  "title": "V25 fresh PIN approval test",
+  "title": "V25 PIN approval test after origin-fix deploy",
   "purpose": "generate-scene-assets",
   "max_budget_usd": 3.0,
   "mode": "authorization-test",
-  "created_at": "2026-09-12T00:50:00+09:00"
+  "created_at": "2026-09-12T00:58:00+09:00"
 }
