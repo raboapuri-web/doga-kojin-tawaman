@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "fancy-frog-8692v25-auth-gateway",
-  "main": "src/index.js",
+  "main": "src/entry.js",
   "compatibility_date": "2026-09-11",
   "durable_objects": {
     "bindings": [
