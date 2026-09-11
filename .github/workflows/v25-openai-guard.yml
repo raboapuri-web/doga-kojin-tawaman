@@ -6,18 +6,14 @@ on:
       purpose:
         description: "AI operation purpose"
         required: true
-        default: "preflight"
+        default: "request-pin-approval"
         type: choice
         options:
-          - preflight
           - request-pin-approval
       max_budget_usd:
         description: "Maximum AI spend authorized for this run"
         required: true
         default: "3.00"
-  push:
-    branches:
-      - v25-ai
 
 permissions:
   contents: read
@@ -28,8 +24,8 @@ concurrency:
 
 env:
   EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
-  EXPECTED_ACTOR: raboapuri-web
-  EXPECTED_PUSH_REF: refs/heads/v25-ai
+  EXPECTED_ACTOR: github-actions[bot]
+  EXPECTED_REF: refs/heads/v25-ai
   AUTH_GATEWAY_URL: https://fancy-frog-8692v25-auth-gateway.zhenyuan0803.workers.dev
 
 jobs:
@@ -51,32 +47,23 @@ jobs:
             exit 1
           fi
 
-          # First-line account filter only. A shared GitHub account is never
-          # accepted as proof of the human operator's identity; Cloudflare PIN
-          # approval remains mandatory for the AI path.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
             echo "Blocked: unexpected GitHub actor."
             exit 1
           fi
 
-          case "$GITHUB_EVENT_NAME" in
-            workflow_dispatch)
-              ;;
-            push)
-              # Push events only perform non-billable policy checks.
-              if [[ "$GITHUB_REF" != "$EXPECTED_PUSH_REF" ]]; then
-                echo "Blocked: pushes are restricted to v25-ai."
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Blocked: pull requests, forks, comments and other events cannot enter the AI path."
-              exit 1
-              ;;
-          esac
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]]; then
+            echo "Blocked: only workflow_dispatch can enter the PIN-gated AI path."
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" != "$EXPECTED_REF" ]]; then
+            echo "Blocked: authorization is restricted to v25-ai."
+            exit 1
+          fi
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
-          echo "GitHub context accepted. Human identity still requires the Cloudflare-only owner PIN."
+          echo "GitHub machine context accepted. Human identity still requires the Cloudflare-only owner PIN."
 
   policy-check:
     name: Confirm gateway-only AI policy
@@ -100,20 +87,12 @@ jobs:
 
           echo "Policy OK: V25 is gateway-only."
 
-      - name: Explain current state
-        shell: bash
-        run: |
-          echo "Owner PIN gateway is scaffolded."
-          echo "Push runs perform policy checks only and never request billable AI work."
-          echo "Authorization binds repository/run_id/SHA/ref/purpose/budget to one browser PIN approval."
-
   gateway-authorization:
     name: Request owner PIN authorization
     needs:
       - authorize-github-context
       - policy-check
     if: >-
-      github.event_name == 'workflow_dispatch' &&
       github.event.inputs.purpose == 'request-pin-approval' &&
       needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
@@ -159,4 +138,4 @@ jobs:
         shell: bash
         run: |
           echo "Owner PIN approval pipeline is ready."
-          echo "No billable AI proxy step is connected until the gateway is deployed and reviewed."
+          echo "No billable AI proxy step is connected yet."
