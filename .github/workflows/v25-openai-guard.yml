@@ -28,7 +28,7 @@ concurrency:
 
 env:
   EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
-  EXPECTED_ACTOR: github-actions[bot]
+  EXPECTED_ACTOR: raboapuri-web
   EXPECTED_PUSH_REF: refs/heads/v25-ai
   AUTH_GATEWAY_URL: https://fancy-frog-8692v25-auth-gateway.zhenyuan0803.workers.dev
 
@@ -51,9 +51,9 @@ jobs:
             exit 1
           fi
 
-          # GitHub account identity is not human identity. Bot-dispatched runs
-          # are permitted only because the Cloudflare-only owner PIN is still
-          # required before any provider call can be authorized.
+          # First-line account filter only. A shared GitHub account is never
+          # accepted as proof of the human operator's identity; Cloudflare PIN
+          # approval remains mandatory for the AI path.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
             echo "Blocked: unexpected GitHub actor."
             exit 1
