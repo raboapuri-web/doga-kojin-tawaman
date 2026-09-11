@@ -91,7 +91,7 @@ jobs:
           docker run -d --name voicevox-nemo -p 127.0.0.1:50021:50121 voicevox/voicevox_nemo_engine:cpu-latest
           for i in $(seq 1 240); do
             if curl -fsS http://127.0.0.1:50021/version >/dev/null; then
-              echo "VOICEVOX Nemo ready"
+              echo 'VOICEVOX Nemo ready'
               exit 0
             fi
             sleep 2
@@ -102,11 +102,16 @@ jobs:
       - name: Render
         shell: bash
         run: |
-          FORCE="${{ github.event.inputs.force || 'false' }}"
-          if [ "$FORCE" = "true" ]; then
-            python factory.py build --episode "$EPISODE" --force
+          if [ "$EPISODE" = "minato_60s_budget_test" ]; then
+            echo "Running capped 60s cinematic budget test"
+            python experiments/minato_60s/render_test.py
           else
-            python factory.py build --episode "$EPISODE"
+            FORCE="${{ github.event.inputs.force || 'false' }}"
+            if [ "$FORCE" = "true" ]; then
+              python factory.py build --episode "$EPISODE" --force
+            else
+              python factory.py build --episode "$EPISODE"
+            fi
           fi
 
       - name: Save partial image cache
