@@ -51,7 +51,7 @@ if (gatewayUrl.protocol !== 'https:') {
 
 const base = gatewayUrl.toString().replace(/\/$/, '');
 const purpose = parsed.get('purpose') ?? 'ai-generation';
-const OIDC_AUDIENCE = 'doga-kojin-tawaman-v25-email-otp';
+const OIDC_AUDIENCE = 'doga-kojin-tawaman-v25-pin-approval';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -63,6 +63,11 @@ function setOutput(name, value, {mask = false} = {}) {
   } else if (!mask) {
     console.log(`${name}=${value}`);
   }
+}
+
+function addSummary(markdown) {
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryFile) appendFileSync(summaryFile, `${markdown}\n`, 'utf8');
 }
 
 let cachedOidcToken = null;
@@ -147,12 +152,18 @@ async function requestAuthorization() {
     }),
   });
 
-  if (!result?.authorization_id || result?.status !== 'pending_email_otp') {
-    throw new Error('Gateway did not create a pending email OTP authorization');
+  if (!result?.authorization_id || result?.status !== 'pending_pin' || !result?.approval_url) {
+    throw new Error('Gateway did not create a pending PIN authorization');
   }
 
   setOutput('authorization_id', result.authorization_id);
-  console.log('Email OTP approval requested. The recipient is controlled by the gateway.');
+  setOutput('approval_url', result.approval_url);
+  console.log('');
+  console.log('OWNER PIN APPROVAL REQUIRED');
+  console.log(result.approval_url);
+  console.log('Open the URL above and enter the Cloudflare-only approval PIN/passcode.');
+  console.log('');
+  addSummary(`## V25 AI approval required\n\n[Open owner PIN approval page](${result.approval_url})\n\nThe approval PIN/passcode exists only in Cloudflare and must never be stored in GitHub.`);
   return result.authorization_id;
 }
 
@@ -178,7 +189,7 @@ async function waitForApproval(authorizationId) {
       }
       setOutput('execution_token', result.execution_token, {mask: true});
       if (result.expires_at) setOutput('execution_token_expires_at', result.expires_at);
-      console.log('Email approval accepted. Scoped execution token issued and masked.');
+      console.log('Owner PIN approval accepted. Scoped execution token issued and masked.');
       return;
     }
 
@@ -186,14 +197,14 @@ async function waitForApproval(authorizationId) {
       throw new Error(`Authorization ${result.status}`);
     }
 
-    if (result?.status !== 'pending_email_otp') {
+    if (result?.status !== 'pending_pin') {
       throw new Error(`Unexpected authorization status: ${result?.status ?? '<missing>'}`);
     }
 
     await sleep(pollSeconds * 1000);
   }
 
-  throw new Error('Email approval timed out');
+  throw new Error('Owner PIN approval timed out');
 }
 
 if (command === 'preflight') {
