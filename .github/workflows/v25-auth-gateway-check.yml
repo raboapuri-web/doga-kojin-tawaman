@@ -1,0 +1,33 @@
+name: V25 Auth Gateway Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v25-ai
+    paths:
+      - 'v25-auth/gateway-worker/**'
+      - '.github/workflows/v25-auth-gateway-check.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v25-auth-gateway-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Wrangler
+        working-directory: v25-auth/gateway-worker
+        run: npm install --no-audit --no-fund
+      - name: Validate Worker bundle and configuration
+        working-directory: v25-auth/gateway-worker
+        run: npm run check
