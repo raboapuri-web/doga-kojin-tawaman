@@ -12,7 +12,7 @@ on:
           - preflight
           - request-email-otp
       max_budget_usd:
-        description: "Maximum OpenAI spend authorized for this run (future gateway)"
+        description: "Maximum AI spend authorized for this run"
         required: true
         default: "3.00"
   push:
@@ -50,8 +50,8 @@ jobs:
             exit 1
           fi
 
-          # This is only a first-line filter. A shared GitHub account is NOT
-          # considered proof of human identity. Email OTP will be authoritative.
+          # First-line machine/account filter only. A shared GitHub account is
+          # never accepted as proof of the human operator's identity.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
             echo "Blocked: unexpected GitHub actor."
             exit 1
@@ -76,14 +76,14 @@ jobs:
           echo "GitHub context accepted. Human identity still requires email OTP."
 
   policy-check:
-    name: Confirm OpenAI is not directly reachable
+    name: Confirm gateway-only AI policy
     needs: authorize-github-context
     if: needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate V25 gateway-only policy
+      - name: Reject direct provider credential/API paths in V25
         shell: bash
         run: |
           set -euo pipefail
@@ -91,21 +91,21 @@ jobs:
           if grep -R --line-number --exclude='v25-openai-guard.yml' --exclude-dir='.git' \
             -E 'secrets\.OPENAI_API_KEY|api\.openai\.com' \
             .github v25-auth 2>/dev/null; then
-            echo "Blocked: V25 contains a direct OpenAI credential/API path."
+            echo "Blocked: V25 contains a direct provider credential/API path."
             exit 1
           fi
 
-          echo "Policy OK: V25 does not directly consume OPENAI_API_KEY or api.openai.com."
+          echo "Policy OK: V25 is gateway-only."
 
-      - name: Explain gateway state
+      - name: Explain current state
         shell: bash
         run: |
           echo "Email OTP gateway is scaffolded but not deployed yet."
-          echo "No OpenAI API request is performed by this workflow."
-          echo "Future authorization will bind repository/run_id/SHA/ref/budget and require a one-time email approval."
+          echo "Push runs perform policy checks only and never request billable AI work."
+          echo "Future authorization binds repository/run_id/SHA/ref/purpose/budget to one email approval."
 
-  gateway-preflight:
-    name: Email OTP gateway preflight
+  gateway-authorization:
+    name: Request owner email OTP authorization
     needs:
       - authorize-github-context
       - policy-check
@@ -114,25 +114,48 @@ jobs:
       github.event.inputs.purpose == 'request-email-otp' &&
       needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      authorization_id: ${{ steps.otp.outputs.authorization_id }}
+      execution_token: ${{ steps.otp.outputs.execution_token }}
+      execution_token_expires_at: ${{ steps.otp.outputs.execution_token_expires_at }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Refuse until gateway is explicitly configured
+      - name: Require deployed authorization gateway
         shell: bash
         env:
           AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
         run: |
           set -euo pipefail
           if [[ -z "${AUTH_GATEWAY_URL:-}" ]]; then
-            echo "Gateway is intentionally not configured yet. No API usage occurred."
+            echo "Gateway is intentionally not configured yet. No AI API usage occurred."
             exit 1
           fi
 
-          node v25-auth/gateway-client.mjs preflight \
+      - name: Request email approval and wait for owner
+        id: otp
+        shell: bash
+        env:
+          AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          node v25-auth/gateway-client.mjs request-and-wait \
             --url "$AUTH_GATEWAY_URL" \
             --repository "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" \
             --sha "$GITHUB_SHA" \
             --ref "$GITHUB_REF" \
             --actor "$GITHUB_ACTOR" \
-            --max-budget-usd "${{ github.event.inputs.max_budget_usd }}"
+            --purpose "generate-scene-assets" \
+            --max-budget-usd "${{ github.event.inputs.max_budget_usd }}" \
+            --timeout-seconds "300" \
+            --poll-seconds "5"
+
+      - name: Stop before any billable AI call
+        shell: bash
+        run: |
+          echo "Email OTP pipeline is ready."
+          echo "No billable AI proxy step is connected until the gateway is deployed and reviewed."
