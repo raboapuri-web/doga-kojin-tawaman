@@ -1,18 +1,18 @@
-# V25 Email OTP Authorization Contract
+# V25 Owner PIN Authorization Contract
 
-This repository intentionally does not store the authorized email address.
-The gateway owns the allowlist and always sends approval to the single configured owner email.
-GitHub Actions cannot choose or override the recipient.
+This repository intentionally does not store the human approval secret.
+The gateway owns `OWNER_APPROVAL_SECRET`; GitHub Actions cannot read, choose or override it.
 
 ## Security goals
 
 1. A shared GitHub account is not treated as human identity.
 2. Pull requests, forks, comments, scheduled jobs and arbitrary branches cannot enter the AI path.
-3. Every billable AI run requires a fresh email OTP or magic-link approval.
+3. Every billable AI run requires a fresh browser approval using the Cloudflare-only owner PIN/passcode.
 4. Approval is bound to one repository, one workflow run, one commit SHA, one branch ref and one budget ceiling.
-5. Approval expires after five minutes and is single-use.
-6. The provider credential stays only in the gateway. GitHub Actions receives only a short-lived scoped execution token.
-7. The gateway rejects attempts to change the approved repository, SHA, ref, run ID, purpose or budget after approval.
+5. Approval expires after five minutes.
+6. Each authorization allows at most five incorrect PIN attempts.
+7. The provider credential stays only in the gateway. GitHub Actions receives only a short-lived scoped execution token.
+8. The gateway rejects attempts to change the approved repository, SHA, ref, run ID, purpose or budget after approval.
 
 ## GitHub -> gateway authorization request
 
@@ -37,12 +37,19 @@ Expected response:
 ```json
 {
   "authorization_id": "opaque-id",
-  "status": "pending_email_otp",
+  "status": "pending_pin",
+  "approval_url": "https://worker.example/approve/opaque-id",
   "expires_at": "ISO-8601 timestamp"
 }
 ```
 
-The recipient email is intentionally absent from the request.
+The approval URL is not itself a credential. The owner PIN/passcode is still required.
+
+## Human approval
+
+GET `/approve/{authorization_id}` displays the run details and PIN form.
+
+POST `/approve/{authorization_id}` accepts the owner PIN/passcode over HTTPS. The PIN/passcode is compared only inside the Cloudflare Worker and is never forwarded to GitHub.
 
 ## Approval status
 
@@ -52,7 +59,7 @@ Pending:
 
 ```json
 {
-  "status": "pending_email_otp"
+  "status": "pending_pin"
 }
 ```
 
@@ -97,13 +104,12 @@ The gateway must enforce the approved purpose and maximum spend server-side.
 
 ## Required gateway-side controls
 
-- Single fixed owner email stored server-side.
-- Six-digit OTP or signed magic link.
+- Owner approval secret stored only as a Cloudflare encrypted secret.
+- Minimum approval-secret length check.
 - Five-minute authorization TTL.
-- One-time authorization consumption.
-- Per-IP and per-run rate limiting.
-- Maximum failed OTP attempts.
-- Replay protection using authorization ID + nonce.
-- Audit log containing run ID, SHA, purpose, approved budget, actual spend and timestamp.
+- Maximum five failed PIN attempts per authorization.
+- Approval bound to repository + run ID + SHA + ref + purpose + budget.
+- Short-lived execution token.
 - No secret values in logs.
-- No endpoint that reveals the configured owner email to GitHub Actions.
+- No endpoint that reveals the configured owner PIN/passcode to GitHub Actions.
+- Provider API key must not be moved to Cloudflare until the approval path has been tested successfully.
