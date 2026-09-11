@@ -1,15 +1,20 @@
-name: V25 OpenAI Owner Guard
+name: V25 Owner PIN Gateway Guard
 
 on:
   workflow_dispatch:
     inputs:
-      mode:
-        description: "Authorized OpenAI operation"
+      purpose:
+        description: "AI operation purpose"
         required: true
-        default: "auth-check"
+        default: "preflight"
         type: choice
         options:
-          - auth-check
+          - preflight
+          - request-pin-approval
+      max_budget_usd:
+        description: "Maximum AI spend authorized for this run"
+        required: true
+        default: "3.00"
   push:
     branches:
       - v25-ai
@@ -18,23 +23,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: v25-openai-owner-${{ github.ref }}
+  group: v25-pin-approval-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
+  EXPECTED_ACTOR: raboapuri-web
+  EXPECTED_PUSH_REF: refs/heads/v25-ai
+  AUTH_GATEWAY_URL: https://fancy-frog-8692v25-auth-gateway.zhenyuan0803.workers.dev
+
 jobs:
-  authorize:
-    name: Verify repository owner
+  authorize-github-context:
+    name: Verify GitHub execution context
     runs-on: ubuntu-latest
     outputs:
       allowed: ${{ steps.guard.outputs.allowed }}
     steps:
-      - name: Reject unauthorized caller
+      - name: Reject unsupported repository, actor, branch or event
         id: guard
         shell: bash
-        env:
-          EXPECTED_REPOSITORY: raboapuri-web/doga-kojin-tawaman
-          EXPECTED_ACTOR: raboapuri-web
-          EXPECTED_PUSH_REF: refs/heads/v25-ai
         run: |
           set -euo pipefail
           echo "allowed=false" >> "$GITHUB_OUTPUT"
@@ -44,8 +51,10 @@ jobs:
             exit 1
           fi
 
+          # First-line machine/account filter only. A shared GitHub account is
+          # never accepted as proof of the human operator's identity.
           if [[ "$GITHUB_ACTOR" != "$EXPECTED_ACTOR" ]]; then
-            echo "Blocked: OpenAI API may only be used by the repository owner."
+            echo "Blocked: unexpected GitHub actor."
             exit 1
           fi
 
@@ -54,46 +63,98 @@ jobs:
               ;;
             push)
               if [[ "$GITHUB_REF" != "$EXPECTED_PUSH_REF" ]]; then
-                echo "Blocked: API-enabled pushes are restricted to v25-ai."
+                echo "Blocked: pushes are restricted to v25-ai."
                 exit 1
               fi
               ;;
             *)
-              echo "Blocked: unsupported event $GITHUB_EVENT_NAME."
+              echo "Blocked: pull requests, forks, comments and other events cannot enter the AI path."
               exit 1
               ;;
           esac
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
-          echo "Authorized owner: $GITHUB_ACTOR"
+          echo "GitHub context accepted. Human identity still requires the Cloudflare-only owner PIN."
 
-  openai-auth-check:
-    name: Verify OpenAI secret without exposing it
-    needs: authorize
-    if: needs.authorize.outputs.allowed == 'true'
+  policy-check:
+    name: Confirm gateway-only AI policy
+    needs: authorize-github-context
+    if: needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Validate OPENAI_API_KEY
+      - uses: actions/checkout@v4
+
+      - name: Reject direct provider credential/API paths in V25
         shell: bash
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-            echo "OPENAI_API_KEY is not configured."
+          if grep -R --line-number --exclude='v25-openai-guard.yml' --exclude-dir='.git' \
+            -E 'secrets\.OPENAI_API_KEY|api\.openai\.com' \
+            .github v25-auth 2>/dev/null; then
+            echo "Blocked: V25 contains a direct provider credential/API path."
             exit 1
           fi
 
-          http_code=$(curl --silent --show-error \
-            --output /dev/null \
-            --write-out "%{http_code}" \
-            --header "Authorization: Bearer ${OPENAI_API_KEY}" \
-            https://api.openai.com/v1/models)
+          echo "Policy OK: V25 is gateway-only."
 
-          if [[ "$http_code" != "200" ]]; then
-            echo "OpenAI credential validation failed with HTTP $http_code."
+      - name: Explain current state
+        shell: bash
+        run: |
+          echo "Owner PIN gateway is scaffolded."
+          echo "Push runs perform policy checks only and never request billable AI work."
+          echo "Future authorization binds repository/run_id/SHA/ref/purpose/budget to one browser PIN approval."
+
+  gateway-authorization:
+    name: Request owner PIN authorization
+    needs:
+      - authorize-github-context
+      - policy-check
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.purpose == 'request-pin-approval' &&
+      needs.authorize-github-context.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      authorization_id: ${{ steps.pin.outputs.authorization_id }}
+      approval_url: ${{ steps.pin.outputs.approval_url }}
+      execution_token: ${{ steps.pin.outputs.execution_token }}
+      execution_token_expires_at: ${{ steps.pin.outputs.execution_token_expires_at }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check deployed authorization gateway URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$AUTH_GATEWAY_URL" != https://*.workers.dev ]]; then
+            echo "Gateway URL is invalid."
             exit 1
           fi
+          echo "Using gateway: $AUTH_GATEWAY_URL"
 
-          echo "OpenAI credential is valid. Secret value was not printed."
+      - name: Request PIN approval and wait for owner
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          node v25-auth/gateway-client.mjs request-and-wait \
+            --url "$AUTH_GATEWAY_URL" \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --sha "$GITHUB_SHA" \
+            --ref "$GITHUB_REF" \
+            --actor "$GITHUB_ACTOR" \
+            --purpose "generate-scene-assets" \
+            --max-budget-usd "${{ github.event.inputs.max_budget_usd }}" \
+            --timeout-seconds "300" \
+            --poll-seconds "5"
+
+      - name: Stop before any billable AI call
+        shell: bash
+        run: |
+          echo "Owner PIN approval pipeline is ready."
+          echo "No billable AI proxy step is connected until the gateway is deployed and reviewed."
