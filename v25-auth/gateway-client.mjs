@@ -158,13 +158,14 @@ async function requestAuthorization() {
 
   setOutput('authorization_id', result.authorization_id);
   setOutput('approval_url', result.approval_url);
+  if (result.expires_at) setOutput('authorization_expires_at', result.expires_at);
   console.log('');
   console.log('OWNER PIN APPROVAL REQUIRED');
   console.log(result.approval_url);
   console.log('Open the URL above and enter the Cloudflare-only approval PIN/passcode.');
   console.log('');
   addSummary(`## V25 AI approval required\n\n[Open owner PIN approval page](${result.approval_url})\n\nThe approval PIN/passcode exists only in Cloudflare and must never be stored in GitHub.`);
-  return result.authorization_id;
+  return result;
 }
 
 async function waitForApproval(authorizationId) {
@@ -213,14 +214,20 @@ if (command === 'preflight') {
 }
 
 if (command === 'request-authorization') {
+  await preflight();
   await requestAuthorization();
+  process.exit(0);
+}
+
+if (command === 'wait-authorization') {
+  await waitForApproval(required('authorization-id'));
   process.exit(0);
 }
 
 if (command === 'request-and-wait') {
   await preflight();
-  const authorizationId = await requestAuthorization();
-  await waitForApproval(authorizationId);
+  const authorization = await requestAuthorization();
+  await waitForApproval(authorization.authorization_id);
   process.exit(0);
 }
 
