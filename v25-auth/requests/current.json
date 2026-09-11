@@ -1,9 +1,9 @@
 {
-  "request_id": "chatgpt-smoke-20260912-0003",
+  "request_id": "chatgpt-smoke-20260912-0004",
   "requested_by": "chatgpt",
-  "title": "V25 PIN artifact smoke test",
+  "title": "V25 independent PIN artifact smoke test",
   "purpose": "generate-scene-assets",
   "max_budget_usd": 3.0,
   "mode": "authorization-test",
-  "created_at": "2026-09-12T00:44:00+09:00"
+  "created_at": "2026-09-12T00:47:00+09:00"
 }
