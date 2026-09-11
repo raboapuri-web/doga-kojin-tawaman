@@ -1,4 +1,4 @@
-name: V25 Email OTP Gateway Guard
+name: V25 Owner PIN Gateway Guard
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
         type: choice
         options:
           - preflight
-          - request-email-otp
+          - request-pin-approval
       max_budget_usd:
         description: "Maximum AI spend authorized for this run"
         required: true
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: v25-email-otp-${{ github.ref }}
+  group: v25-pin-approval-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -73,7 +73,7 @@ jobs:
           esac
 
           echo "allowed=true" >> "$GITHUB_OUTPUT"
-          echo "GitHub context accepted. Human identity still requires email OTP."
+          echo "GitHub context accepted. Human identity still requires the Cloudflare-only owner PIN."
 
   policy-check:
     name: Confirm gateway-only AI policy
@@ -100,27 +100,28 @@ jobs:
       - name: Explain current state
         shell: bash
         run: |
-          echo "Email OTP gateway is scaffolded but not deployed yet."
+          echo "Owner PIN gateway is scaffolded."
           echo "Push runs perform policy checks only and never request billable AI work."
-          echo "Future authorization binds repository/run_id/SHA/ref/purpose/budget to one email approval."
+          echo "Future authorization binds repository/run_id/SHA/ref/purpose/budget to one browser PIN approval."
 
   gateway-authorization:
-    name: Request owner email OTP authorization
+    name: Request owner PIN authorization
     needs:
       - authorize-github-context
       - policy-check
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.purpose == 'request-email-otp' &&
+      github.event.inputs.purpose == 'request-pin-approval' &&
       needs.authorize-github-context.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     outputs:
-      authorization_id: ${{ steps.otp.outputs.authorization_id }}
-      execution_token: ${{ steps.otp.outputs.execution_token }}
-      execution_token_expires_at: ${{ steps.otp.outputs.execution_token_expires_at }}
+      authorization_id: ${{ steps.pin.outputs.authorization_id }}
+      approval_url: ${{ steps.pin.outputs.approval_url }}
+      execution_token: ${{ steps.pin.outputs.execution_token }}
+      execution_token_expires_at: ${{ steps.pin.outputs.execution_token_expires_at }}
     steps:
       - uses: actions/checkout@v4
 
@@ -131,12 +132,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${AUTH_GATEWAY_URL:-}" ]]; then
-            echo "Gateway is intentionally not configured yet. No AI API usage occurred."
+            echo "Gateway URL is not configured. No AI API usage occurred."
             exit 1
           fi
 
-      - name: Request email approval and wait for owner
-        id: otp
+      - name: Request PIN approval and wait for owner
+        id: pin
         shell: bash
         env:
           AUTH_GATEWAY_URL: ${{ secrets.AUTH_GATEWAY_URL }}
@@ -157,5 +158,5 @@ jobs:
       - name: Stop before any billable AI call
         shell: bash
         run: |
-          echo "Email OTP pipeline is ready."
+          echo "Owner PIN approval pipeline is ready."
           echo "No billable AI proxy step is connected until the gateway is deployed and reviewed."
