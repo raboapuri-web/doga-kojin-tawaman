@@ -1,131 +1,20 @@
-name: Render Knowledge Video
+name: Render Knowledge Video (Legacy Disabled on V25)
 
 on:
   workflow_dispatch:
-    inputs:
-      episode:
-        description: Episode folder under episodes/
-        required: true
-        default: blush_full
-      force:
-        description: Regenerate cached plan/images/voice
-        required: false
-        type: boolean
-        default: false
-  push:
-    paths:
-      - 'trigger/**'
 
-concurrency:
-  group: knowledge-video-render
-  cancel-in-progress: false
+permissions:
+  contents: read
 
 jobs:
-  render:
+  disabled:
+    name: Legacy direct-AI workflow disabled
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      VOICEVOX_URL: http://127.0.0.1:50021
-      VOICEVOX_SPEAKER_ID: '10000'
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Resolve episode
+      - name: Migration notice
         shell: bash
         run: |
-          INPUT_EPISODE="${{ github.event.inputs.episode }}"
-          if [ -n "$INPUT_EPISODE" ]; then
-            EPISODE="$INPUT_EPISODE"
-          elif [ -f trigger/episode.txt ]; then
-            EPISODE="$(tr -d '\r\n ' < trigger/episode.txt)"
-          else
-            EPISODE="blush_full"
-          fi
-          if [ ! -f "episodes/$EPISODE/script.txt" ]; then
-            echo "::error::Unknown episode: $EPISODE"
-            exit 1
-          fi
-          echo "EPISODE=$EPISODE" >> "$GITHUB_ENV"
-          echo "Rendering episode: $EPISODE"
-
-      - name: Verify OpenAI API key
-        shell: bash
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::Repository secret OPENAI_API_KEY is required."
-            exit 1
-          fi
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk curl
-
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
-      - name: Restore generated image cache
-        uses: actions/cache/restore@v4
-        with:
-          path: episodes/*/assets/images
-          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-${{ github.run_id }}
-          restore-keys: |
-            images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-
-
-      - name: Restore VOICEVOX cache
-        uses: actions/cache@v4
-        with:
-          path: episodes/*/assets/audio/u*.wav
-          key: voice-${{ hashFiles('config/tts.json', 'config/tts_replacements.json', 'episodes/*/script.txt', 'episodes/*/tts_replacements.json') }}
-          restore-keys: |
-            voice-
-
-      - name: Start VOICEVOX Nemo Engine
-        run: |
-          docker pull voicevox/voicevox_nemo_engine:cpu-latest
-          docker run -d --name voicevox-nemo -p 127.0.0.1:50021:50121 voicevox/voicevox_nemo_engine:cpu-latest
-          for i in $(seq 1 240); do
-            if curl -fsS http://127.0.0.1:50021/version >/dev/null; then
-              echo "VOICEVOX Nemo ready"
-              exit 0
-            fi
-            sleep 2
-          done
-          docker logs voicevox-nemo
+          echo "This legacy workflow is intentionally disabled on v25-ai."
+          echo "Direct provider credentials are not permitted in the V25 pipeline."
+          echo "Use V25 Email OTP Gateway Guard after the authorization gateway is deployed."
           exit 1
-
-      - name: Render
-        shell: bash
-        run: |
-          FORCE="${{ github.event.inputs.force || 'false' }}"
-          if [ "$FORCE" = "true" ]; then
-            python factory.py build --episode "$EPISODE" --force
-          else
-            python factory.py build --episode "$EPISODE"
-          fi
-
-      - name: Save partial image cache
-        if: always()
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: episodes/*/assets/images
-          key: images-${{ hashFiles('config/style.json', 'config/pipeline.json', 'episodes/*/script.txt', 'episodes/*/episode.json') }}-${{ github.run_id }}
-
-      - name: Upload finished video
-        uses: actions/upload-artifact@v4
-        with:
-          name: knowledge-video-${{ env.EPISODE }}
-          path: |
-            episodes/${{ env.EPISODE }}/output/final.mp4
-            episodes/${{ env.EPISODE }}/output/subtitles.srt
-            episodes/${{ env.EPISODE }}/output/timeline.json
-            episodes/${{ env.EPISODE }}/output/CREDITS.txt
-            episodes/${{ env.EPISODE }}/work/scene_plan.json
-          if-no-files-found: error
-          retention-days: 30
