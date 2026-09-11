@@ -48,3 +48,5 @@ The provider API credential is intentionally **not** part of this Worker yet.
 ## Security note
 
 A shared GitHub login is not treated as human identity. GitHub OIDC proves which workflow/run is calling; possession of the owner-only Cloudflare PIN/passcode proves the human approver. Because the approval URL may be visible in public Actions logs, the URL alone never authorizes a run.
+
+<!-- deploy-trigger: 2026-09-12T00:36+09:00 -->
