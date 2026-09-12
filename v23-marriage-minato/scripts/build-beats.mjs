@@ -9,27 +9,27 @@ const paragraphs=text.split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);
 
 let phase='yakitori';
 const phaseFor=(p)=>{
-  if(p.startsWith('僕は中野駅')) phase='nakano';
-  if(p.startsWith('彼女の実家は世田谷')) phase='class_gap';
-  if(p.startsWith('その焼き鳥屋で')) phase='marriage_talk';
-  if(p.startsWith('付き合って一年くらい')) phase='weddings';
-  if(p.startsWith('二十八歳の誕生日')) phase='daikanyama';
-  if(p.startsWith('二十九歳になる頃')) phase='conflict';
-  if(p.startsWith('最後の喧嘩は麻布十番')) phase='italian';
-  if(p.startsWith('店を出ると、十番商店街')) phase='split_walk';
-  if(p.startsWith('一ヶ月後に別れた')) phase='breakup';
-  if(p.startsWith('翌年、彼女は三十歳')) phase='instagram_hotel';
-  if(p.startsWith('その頃、僕には新しい彼女')) phase='saitama_family';
-  if(p.startsWith('彼女と再会したのは')) phase='reunion_arrival';
-  if(p.startsWith('仕事はまだ同じ会社')) phase='reunion_talk';
-  if(p.startsWith('彼女は楽しそうだった')) phase='envy';
-  if(p.startsWith('別れ際')) phase='goodbye';
-  if(p.startsWith('僕は麻布十番駅へ向かった')) phase='train_route';
-  if(p.startsWith('帰宅したのは')) phase='home_family';
-  if(p.startsWith('風呂に入ったあと')) phase='phone_memory';
-  if(p.startsWith('三十五歳の彼女には')) phase='life_compare';
-  if(p.startsWith('僕たちはあの夜')) phase='split_paths';
-  if(p.startsWith('娘が寝室で泣いた')) phase='final_home';
+  if(p.startsWith('僕は三十三歳だった。')) phase='nakano';
+  if(p.startsWith('彼女とは大学時代からの友達だった。')) phase='class_gap';
+  if(p.startsWith('十年以上経って、')) phase='daikanyama';
+  if(p.startsWith('彼女の最初の彼氏は、')) phase='weddings';
+  if(p.startsWith('三十三歳になった彼女は婚活を始めた。')) phase='phone_memory';
+  if(p.startsWith('ある男は、地方銀行に勤めていた。')) phase='weddings';
+  if(p==='一度、') phase='italian';
+  if(p.startsWith('その日、')) phase='split_walk';
+  if(p.startsWith('僕はそこにいた。')) phase='envy';
+  if(p.startsWith('三十四歳の夏。')) phase='reunion_talk';
+  if(p.startsWith('その夜、')) phase='goodbye';
+  if(p.startsWith('彼女の結婚式は、虎ノ門だった。')) phase='instagram_hotel';
+  if(p.startsWith('披露宴で新郎の上司が、')) phase='weddings';
+  if(p.startsWith('普通に働いている。')) phase='life_compare';
+  if(p.startsWith('披露宴が終わって、')) phase='split_walk';
+  if(p.startsWith('地下へ降りるエスカレーターで、')) phase='train_route';
+  if(p.startsWith('嘘ではなかったのだと思う。')) phase='life_compare';
+  if(p.startsWith('東京は、')) phase='class_gap';
+  if(p.startsWith('僕の普通と、')) phase='split_paths';
+  if(p.startsWith('日比谷線に乗った。')) phase='train_route';
+  if(p.startsWith('普通の人と結婚したいと言った彼女の瞳に、')) phase='final_home';
   return phase;
 };
 
@@ -38,7 +38,7 @@ const grouped=[];
 let cur=null;
 for(const item of raw){
   const hardDialogue=/^「/.test(item.p);
-  const max=hardDialogue?72:118;
+  const max=hardDialogue?68:112;
   if(!cur || cur.phase!==item.phase || (cur.text.length+item.p.length+1)>max){
     cur={phase:item.phase,text:item.p,source:[item.i]};
     grouped.push(cur);
