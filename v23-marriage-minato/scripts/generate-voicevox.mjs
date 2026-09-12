@@ -16,14 +16,18 @@ const style=speaker.styles.find(s=>s.name==='ノーマル')??speaker.styles[0];
 console.log(`VOICEVOX ${speaker.name}/${style.name}/${style.id}`);
 
 const normalize=(s)=>s
- .replaceAll('Instagram','インスタグラム').replaceAll('LINE','ライン').replaceAll('Amazon','アマゾン')
- .replaceAll('T-SITE','ティーサイト').replaceAll('青学','あおがく').replaceAll('三菱商事','みつびししょうじ')
- .replaceAll('三LDK','さんえるでぃーけー').replaceAll('一LDK','いちえるでぃーけー')
- .replaceAll('浪花家','なにわや').replaceAll('豆源','まめげん').replaceAll('仙台坂','せんだいざか')
- .replaceAll('別所沼公園','べっしょぬまこうえん').replaceAll('武蔵浦和','むさしうらわ')
- .replaceAll('六本木ヒルズ','ろっぽんぎヒルズ').replaceAll('麻布十番','あざぶじゅうばん')
- .replaceAll('南北線','なんぼくせん').replaceAll('大江戸線','おおえどせん').replaceAll('埼京線','さいきょうせん')
- .replaceAll('Instagram','インスタグラム');
+ .replaceAll('LINE','ライン').replaceAll('Netflix','ネットフリックス').replaceAll('IT企業','アイティー企業')
+ .replaceAll('1K','ワンケー').replaceAll('A判定','エー判定')
+ .replaceAll('法政大学','ほうせいだいがく').replaceAll('上智','じょうち').replaceAll('慶應','けいおう').replaceAll('早稲田','わせだ')
+ .replaceAll('新潟','にいがた').replaceAll('信用金庫','しんようきんこ').replaceAll('練馬','ねりま')
+ .replaceAll('上野','うえの').replaceAll('広小路口','ひろこうじぐち').replaceAll('アメ横','あめよこ')
+ .replaceAll('表参道','おもてさんどう').replaceAll('青山','あおやま').replaceAll('恵比寿','えびす').replaceAll('六本木','ろっぽんぎ')
+ .replaceAll('代々木公園','よよぎこうえん').replaceAll('神保町','じんぼうちょう')
+ .replaceAll('丸の内','まるのうち').replaceAll('日比谷','ひびや').replaceAll('ペニンシュラ','ぺにんしゅら')
+ .replaceAll('中目黒','なかめぐろ').replaceAll('目黒川','めぐろがわ').replaceAll('東横線','とうよこせん').replaceAll('日比谷線','ひびやせん')
+ .replaceAll('日東駒専','にっとうこません').replaceAll('大井町','おおいまち').replaceAll('阪急','はんきゅう')
+ .replaceAll('白金高輪','しろかねたかなわ').replaceAll('横浜','よこはま').replaceAll('虎ノ門ヒルズ','とらのもんヒルズ').replaceAll('虎ノ門','とらのもん')
+ .replaceAll('ニューバランス','にゅーばらんす').replaceAll('イトーヨーカドー','いとーよーかどー');
 
 const files=[];const timings=[];let cursor=0;
 for(let i=0;i<beats.length;i++){
