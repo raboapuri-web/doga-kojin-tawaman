@@ -1,0 +1,4 @@
+import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');const sync=JSON.parse(fs.readFileSync(path.join(root,'src/sync-timing.json'),'utf8'));const fps=30,target=105,max=135;const seg=[];let start=0,startSec=0,last=-1;
+for(let i=0;i<sync.beats.length;i++){const b=sync.beats[i],elapsed=b.end-startSec,isLast=i===sync.beats.length-1,nextToo=!isLast&&(sync.beats[i+1].end-startSec)>max;if(isLast||elapsed>=target||nextToo){const end=isLast?Math.ceil(sync.durationSeconds*fps)-1:Math.max(start,Math.round(b.end*fps)-1);seg.push({id:String(seg.length).padStart(2,'0'),start,end});last=end;start=end+1;startSec=start/fps;}}
+const finalEnd=Math.ceil(sync.durationSeconds*fps)-1;if(last<finalEnd)seg.push({id:String(seg.length).padStart(2,'0'),start:last+1,end:finalEnd});console.log(JSON.stringify({include:seg}));
