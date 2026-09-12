@@ -2,7 +2,7 @@ import React from 'react';
 import {useCurrentFrame,useVideoConfig} from 'remotion';
 import beatsData from './beats.json';
 import {getActiveBeat} from './timing';
-import {Caption,Visual,type Beat} from './scenes';
+import {Caption,Visual,type Beat} from './ordinary-scenes';
 
 const beats=beatsData as Beat[];
 export const V23MarriageMinato:React.FC=()=>{
