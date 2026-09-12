@@ -1,0 +1,1 @@
+Run the existing 60-second cinematic OpenAI image API budget test for minato_60s_budget_test. Use the planned 8-image budget: 5 medium human scenes + 3 low scenery scenes, Aoyama Ryusei narration, small subtitles, no editorial text overlays.
