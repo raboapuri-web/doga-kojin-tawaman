@@ -3,12 +3,9 @@ import {useCurrentFrame,useVideoConfig} from 'remotion';
 import scriptData from './script-data.json';
 import {getActiveBeatAtSeconds} from './timing';
 import {CaptionLayer,Visual,type Beat} from './scenes';
-import {TowerStorageScene} from './tower-storage-scene';
+import {ModernStorage} from './ModernStorage';
 
-const beats=(scriptData.beats as Beat[]).map((beat)=>({
-  ...beat,
-  narration:beat.narration.replace('二袋目は納戸に押し込んだ。','二袋目は廊下の収納に押し込んだ。'),
-}));
+const beats=scriptData.beats as Beat[];
 
 export const V23RiceOverflow:React.FC=()=>{
   const frame=useCurrentFrame();
@@ -16,7 +13,7 @@ export const V23RiceOverflow:React.FC=()=>{
   const active=getActiveBeatAtSeconds(frame/fps);
   const beat=beats[active.index]??beats[0];
   return <>
-    {beat.scene==='storage'?<TowerStorageScene p={active.progress}/>:<Visual beat={beat} p={active.progress}/>} 
+    {beat.scene==='storage'?<ModernStorage p={active.progress}/>:<Visual beat={beat} p={active.progress}/>} 
     <CaptionLayer beat={beat} p={active.progress}/>
   </>;
 };
