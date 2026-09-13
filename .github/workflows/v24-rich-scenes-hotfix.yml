@@ -1,0 +1,60 @@
+name: V24 Rich Scenes Safety Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v24-rich-scenes-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout V24 story branch
+        uses: actions/checkout@v4
+        with:
+          ref: v24-tokyo-envy-full
+          fetch-depth: 0
+      - name: Patch rich scene hook safety
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('v23-marriage-minato/src/rich-scenes.tsx')
+          s=p.read_text()
+          old="const Scene:React.FC<{beat:Beat;p:number}>=({beat,p})=>{const v=beat.index;switch(beat.scene){"
+          new="const Scene:React.FC<{beat:Beat;p:number}>=({beat,p})=>{const v=beat.index;const f=useCurrentFrame();switch(beat.scene){"
+          if old in s:
+              s=s.replace(old,new,1)
+          s=s.replace("Math.sin(useCurrentFrame()*.02+i)**2","Math.sin(f*.02+i)**2")
+          s=s.replace("scene.toUpperCase().replaceAll('_',' ')","scene.toUpperCase().replace(/_/g,' ')")
+          p.write_text(s)
+          PY
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Type check rich renderer
+        working-directory: v23-marriage-minato
+        run: |
+          npm install
+          npm run check
+      - name: Commit rich scene patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v23-marriage-minato/src/rich-scenes.tsx
+          if git diff --cached --quiet; then
+            echo 'No patch changes needed'
+          else
+            git commit -m 'Harden V24 rich scene renderer'
+            git push origin HEAD:v24-tokyo-envy-full
+          fi
+      - name: Re-run V24 cinematic build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run v24-tokyo-envy-build.yml --ref main
