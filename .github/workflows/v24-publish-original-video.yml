@@ -1,0 +1,45 @@
+name: V24 Publish Original Video
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v24-publish-original-video.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download final artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source
+          gh run download 34765903232 \
+            --repo raboapuri-web/doga-kojin-tawaman \
+            --name v24-tokyo-envy-final \
+            --dir source
+          find source -type f -maxdepth 5 -print
+
+      - name: Publish original MP4 direct download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SRC="$(find source -type f -name 'v24-tokyo-envy-final.mp4' -print -quit)"
+          test -n "$SRC"
+          TAG="v24-tokyo-envy-original"
+          gh release delete "$TAG" --repo raboapuri-web/doga-kojin-tawaman --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --repo raboapuri-web/doga-kojin-tawaman \
+            --title "V24 Tokyo Envy Original MP4" \
+            --notes "Original full-quality video-only MP4." \
+            "$SRC#v24-tokyo-envy-final.mp4"
