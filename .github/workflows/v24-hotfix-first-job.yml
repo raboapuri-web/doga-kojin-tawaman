@@ -1,0 +1,54 @@
+name: V24 Tokyo Envy JSX Hotfix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v24-hotfix-first-job.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout V24 story branch
+        uses: actions/checkout@v4
+        with:
+          ref: v24-tokyo-envy-full
+          fetch-depth: 0
+      - name: Fix malformed train JSX
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('v23-marriage-minato/src/scenes.tsx')
+          s=p.read_text()
+          old="<div style={{position:'absolute',left:-400+((f*9)%2600),bottom:145,width:520,height:78,background:'#aebbc2',borderRadius:20,boxShadow:'0 0 20px rgba(200,230,245,.15)'}}/>{Array.from({length:8},(_,i)=><div key={i} style={{position:'absolute',left:35+i*58,top:18,width:38,height:25,background:'#263746'}}/>)}</div>"
+          new="<div style={{position:'absolute',left:-400+((f*9)%2600),bottom:145,width:520,height:78,background:'#aebbc2',borderRadius:20,boxShadow:'0 0 20px rgba(200,230,245,.15)'}}>{Array.from({length:8},(_,i)=><div key={i} style={{position:'absolute',left:35+i*58,top:18,width:38,height:25,background:'#263746'}}/>)}</div>"
+          if old not in s:
+              raise SystemExit('target malformed JSX not found')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Type check before push
+        working-directory: v23-marriage-minato
+        run: |
+          npm install
+          npm run check
+      - name: Commit fix to story branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add v23-marriage-minato/src/scenes.tsx
+          git commit -m 'Fix V24 first-job train JSX'
+          git push origin HEAD:v24-tokyo-envy-full
+      - name: Re-run V24 cinematic build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run v24-tokyo-envy-build.yml --ref main
