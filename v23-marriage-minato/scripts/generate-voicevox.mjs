@@ -16,26 +16,32 @@ const style=speaker.styles.find(s=>s.name==='ノーマル')??speaker.styles[0];
 console.log(`VOICEVOX ${speaker.name}/${style.name}/${style.id}`);
 
 const normalize=(s)=>s
- .replaceAll('Instagram','インスタグラム').replaceAll('LINE','ライン').replaceAll('Amazon','アマゾン')
- .replaceAll('T-SITE','ティーサイト').replaceAll('青学','あおがく').replaceAll('三菱商事','みつびししょうじ')
- .replaceAll('三LDK','さんえるでぃーけー').replaceAll('一LDK','いちえるでぃーけー')
- .replaceAll('浪花家','なにわや').replaceAll('豆源','まめげん').replaceAll('仙台坂','せんだいざか')
- .replaceAll('別所沼公園','べっしょぬまこうえん').replaceAll('武蔵浦和','むさしうらわ')
- .replaceAll('六本木ヒルズ','ろっぽんぎヒルズ').replaceAll('麻布十番','あざぶじゅうばん')
- .replaceAll('南北線','なんぼくせん').replaceAll('大江戸線','おおえどせん').replaceAll('埼京線','さいきょうせん')
- .replaceAll('Instagram','インスタグラム');
+ .replaceAll('Instagram','インスタグラム').replaceAll('LINE','ライン')
+ .replaceAll('T-SITE','ティーサイト').replaceAll('BMW','ビーエムダブリュー')
+ .replaceAll('NEWoMan','ニュウマン').replaceAll('一LDK','いちえるでぃーけー').replaceAll('一K','いちけー')
+ .replaceAll('高田馬場','たかだのばば').replaceAll('早稲田通り','わせだどおり')
+ .replaceAll('麻布十番','あざぶじゅうばん').replaceAll('成城石井','せいじょういしい')
+ .replaceAll('六本木ヒルズ','ろっぽんぎヒルズ').replaceAll('中目黒','なかめぐろ')
+ .replaceAll('吉祥寺','きちじょうじ').replaceAll('豊洲','とよす').replaceAll('二子玉川','ふたこたまがわ')
+ .replaceAll('広尾','ひろお').replaceAll('代官山','だいかんやま').replaceAll('白金','しろかね')
+ .replaceAll('自由が丘','じゆうがおか').replaceAll('ペデストリアンデッキ','歩行者デッキ')
+ .replaceAll('有楽町線','ゆうらくちょうせん').replaceAll('目黒','めぐろ').replaceAll('新宿','しんじゅく')
+ .replaceAll('甲州街道','こうしゅうかいどう').replaceAll('シンガポール','シンガポール')
+ .replaceAll('マリーナベイサンズ','マリーナベイサンズ').replaceAll('ポルシェ','ポルシェ')
+ .replaceAll('恵比寿','えびす').replaceAll('ガーデンプレイス','ガーデンプレイス');
 
 const files=[];const timings=[];let cursor=0;
 for(let i=0;i<beats.length;i++){
   const beat=beats[i];const text=normalize(beat.narration);
   const qRes=await fetch(`${base}/audio_query?speaker=${style.id}&text=${encodeURIComponent(text)}`,{method:'POST'});
   if(!qRes.ok)throw new Error(`audio_query ${qRes.status} ${beat.id}`);
-  const q=await qRes.json();q.speedScale=1.03;q.pitchScale=-0.015;q.intonationScale=.86;q.volumeScale=.97;q.prePhonemeLength=.05;q.postPhonemeLength=.08;
+  const q=await qRes.json();
+  q.speedScale=1.02;q.pitchScale=-0.02;q.intonationScale=.82;q.volumeScale=.98;q.prePhonemeLength=.07;q.postPhonemeLength=.10;
   const sRes=await fetch(`${base}/synthesis?speaker=${style.id}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(q)});
   if(!sRes.ok)throw new Error(`synthesis ${sRes.status} ${beat.id}`);
   const raw=path.join(tmp,`${beat.id}.wav`);fs.writeFileSync(raw,Buffer.from(await sRes.arrayBuffer()));
   const pad=path.join(tmp,`${beat.id}-pad.wav`);
-  execFileSync('ffmpeg',['-y','-loglevel','error','-i',raw,'-af','apad=pad_dur=0.12',pad]);
+  execFileSync('ffmpeg',['-y','-loglevel','error','-i',raw,'-af','apad=pad_dur=0.13',pad]);
   const d=Number(execFileSync('ffprobe',['-v','error','-show_entries','format=duration','-of','default=nw=1:nk=1',pad],{encoding:'utf8'}).trim());
   timings.push({id:beat.id,index:i,start:cursor,end:cursor+d});cursor+=d;files.push(pad);
   console.log(`${beat.id} ${beat.scene} ${d.toFixed(2)}s`);
