@@ -1,0 +1,59 @@
+name: V24 Video Only Delivery Export
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v24-export-video-only.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ffmpeg and GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg gh
+
+      - name: Download completed V24 final artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p source
+          gh run download 34765903232 \
+            --repo raboapuri-web/doga-kojin-tawaman \
+            --name v24-tokyo-envy-final \
+            --dir source
+          find source -maxdepth 4 -type f -print
+
+      - name: Create YouTube-ready MP4 only
+        run: |
+          SRC="$(find source -type f -name 'v24-tokyo-envy-final.mp4' -print -quit)"
+          test -n "$SRC"
+          mkdir -p delivery
+          ffmpeg -y -loglevel error -i "$SRC" \
+            -c:v libx264 -preset slow -crf 23 -maxrate 6M -bufsize 12M \
+            -c:a aac -b:a 192k -movflags +faststart \
+            delivery/v24-tokyo-envy-youtube.mp4
+          ffprobe -v error -show_entries format=duration,size,bit_rate -of default=noprint_wrappers=1 delivery/v24-tokyo-envy-youtube.mp4
+
+      - name: Publish direct-download release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v24-tokyo-envy-delivery"
+          gh release delete "$TAG" --repo raboapuri-web/doga-kojin-tawaman --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --repo raboapuri-web/doga-kojin-tawaman \
+            --title "V24 Tokyo Envy Final Delivery" \
+            --notes "Video-only delivery export for 僕たちは、いつから『羨ましい』と言えなくなったんだろう。" \
+            delivery/v24-tokyo-envy-youtube.mp4
