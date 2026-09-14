@@ -1,0 +1,23 @@
+{
+  "name": "s11-friends-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "render": "remotion render src/index.ts S11FourSeconds out/s11-four-seconds.mp4 --codec h264 --crf 17",
+    "qa": "remotion still src/index.ts S11QaSheet out/s11-qa-sheet.png",
+    "layers": "remotion still src/index.ts S11LayerSheet out/s11-layer-sheet.png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.332",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.332"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.6",
+    "@types/react": "18.3.24",
+    "@types/react-dom": "18.3.7",
+    "typescript": "5.9.2"
+  }
+}

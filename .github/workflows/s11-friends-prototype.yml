@@ -1,0 +1,44 @@
+name: S11 Friends Four Second Prototype
+
+on:
+  push:
+    branches: [codex/s11-4s-prototype]
+    paths:
+      - 's11-friends-prototype/**'
+      - '.github/workflows/s11-friends-prototype.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: s11-friends-prototype
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pnpm
+        run: npm install --global pnpm@11.19.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check types
+        run: pnpm check
+      - name: Render four-second MP4
+        run: pnpm render --concurrency 2
+      - name: Render QA sheets
+        run: |
+          pnpm qa
+          pnpm layers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s11-four-second-prototype
+          path: |
+            s11-friends-prototype/out/s11-four-seconds.mp4
+            s11-friends-prototype/out/s11-qa-sheet.png
+            s11-friends-prototype/out/s11-layer-sheet.png
