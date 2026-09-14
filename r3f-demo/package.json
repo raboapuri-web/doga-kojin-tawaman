@@ -1,10 +1,10 @@
 {
-  "name": "r3f-demo-friends",
+  "name": "r3f-friends-first-minute",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "check": "tsc --noEmit",
-    "render": "remotion render src/index.ts R3FFriendsDemo out/r3f-friends-demo.mp4 --codec=h264 --crf=20 --log=warn"
+    "render": "remotion render src/index.ts R3FFriendsFirstMinute out/r3f-friends-first-minute.mp4 --codec=h264 --crf=20 --log=warn"
   },
   "dependencies": {
     "@react-three/fiber": "^8.17.10",
