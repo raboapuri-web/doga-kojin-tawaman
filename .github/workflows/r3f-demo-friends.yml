@@ -1,0 +1,68 @@
+name: R3F Friends Demo
+
+on:
+  push:
+    branches: [r3f-demo-friends]
+    paths:
+      - 'r3f-demo/**'
+      - '.github/workflows/r3f-demo-friends.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: r3f-demo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: r3f-demo-friends
+      - name: Install fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          fc-cache -f
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Type check
+        run: npm run check
+      - name: Render demo
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          mkdir -p out
+          npm run render
+      - name: Make preview sheet
+        run: |
+          ffmpeg -y -loglevel error -i out/r3f-friends-demo.mp4 -vf "fps=1/2,scale=480:270,tile=3x2" -frames:v 1 -q:v 2 out/r3f-friends-contact-sheet.jpg
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 out/r3f-friends-demo.mp4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r3f-friends-demo
+          compression-level: 0
+          path: |
+            r3f-demo/out/r3f-friends-demo.mp4
+            r3f-demo/out/r3f-friends-contact-sheet.jpg
+      - name: Publish sample release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete r3f-demo-friends-v1 --yes --cleanup-tag 2>/dev/null || true
+          gh release create r3f-demo-friends-v1 \
+            out/r3f-friends-demo.mp4 \
+            out/r3f-friends-contact-sheet.jpg \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Remotion + React Three Fiber Sample" \
+            --notes "12-second test scene for the literary-video pipeline: real 3D camera, perspective, lighting, fog, layered characters, table props, and a metaphorical translucent score sheet."
