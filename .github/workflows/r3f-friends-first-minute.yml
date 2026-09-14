@@ -1,0 +1,157 @@
+name: R3F Friends First Minute
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [r3f-friends-first-minute]
+    paths:
+      - 'r3f-demo/**'
+      - '.github/workflows/r3f-friends-first-minute.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: r3f-demo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: r3f-friends-first-minute
+      - name: Install ffmpeg and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          fc-cache -f
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Type check
+        run: npm run check
+      - name: Start VOICEVOX
+        run: |
+          docker pull voicevox/voicevox_engine:cpu-latest
+          docker run -d --rm --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in {1..90}; do
+            curl -fsS http://127.0.0.1:50021/version >/dev/null && exit 0
+            sleep 2
+          done
+          docker logs voicevox || true
+          exit 1
+      - name: Generate synchronized narration
+        run: node scripts/generate-voice.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r3f-first-minute-audio
+          retention-days: 1
+          path: r3f-demo/public/audio/narration.m4a
+
+  render:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - {id: 1, start: 0, end: 299}
+          - {id: 2, start: 300, end: 599}
+          - {id: 3, start: 600, end: 899}
+          - {id: 4, start: 900, end: 1199}
+          - {id: 5, start: 1200, end: 1499}
+          - {id: 6, start: 1500, end: 1799}
+    defaults:
+      run:
+        working-directory: r3f-demo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: r3f-friends-first-minute
+      - name: Install fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          fc-cache -f
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Render segment ${{ matrix.id }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          mkdir -p out
+          npx remotion render src/index.ts R3FFriendsFirstMinute "out/segment-${{ matrix.id }}.mp4" \
+            --frames=${{ matrix.start }}-${{ matrix.end }} \
+            --codec=h264 --crf=20 --concurrency=2 --log=warn
+          test -s "out/segment-${{ matrix.id }}.mp4"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r3f-first-minute-segment-${{ matrix.id }}
+          retention-days: 1
+          compression-level: 0
+          path: r3f-demo/out/segment-${{ matrix.id }}.mp4
+
+  finalize:
+    needs: [prepare, render]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: r3f-demo
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: r3f-friends-first-minute
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - uses: actions/download-artifact@v4
+        with:
+          name: r3f-first-minute-audio
+          path: r3f-demo/public/audio
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r3f-first-minute-segment-*
+          path: r3f-demo/parts
+          merge-multiple: true
+      - name: Concatenate and mix narration
+        run: |
+          mkdir -p out
+          find parts -name 'segment-*.mp4' -print | sort -V | while read -r f; do printf "file '%s'\n" "$(realpath "$f")"; done > out/concat.txt
+          ffmpeg -y -loglevel error -f concat -safe 0 -i out/concat.txt -c copy out/video-only.mp4
+          ffmpeg -y -loglevel error -i out/video-only.mp4 -i public/audio/narration.m4a \
+            -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -movflags +faststart -t 60 out/r3f-friends-first-minute.mp4
+      - name: Generate QA sheet
+        run: |
+          ffmpeg -y -loglevel error -i out/r3f-friends-first-minute.mp4 \
+            -vf "select='eq(n,60)+eq(n,195)+eq(n,360)+eq(n,495)+eq(n,630)+eq(n,795)+eq(n,945)+eq(n,1110)+eq(n,1290)+eq(n,1455)+eq(n,1590)+eq(n,1725)',scale=320:180,tile=4x3" \
+            -frames:v 1 -q:v 2 out/r3f-friends-first-minute-qa.jpg
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 out/r3f-friends-first-minute.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r3f-friends-first-minute-final
+          retention-days: 30
+          compression-level: 0
+          path: |
+            r3f-demo/out/r3f-friends-first-minute.mp4
+            r3f-demo/out/r3f-friends-first-minute-qa.jpg
+            r3f-demo/scene-table.md
+      - name: Publish sample release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete r3f-friends-first-minute-v1 --yes --cleanup-tag || true
+          gh release create r3f-friends-first-minute-v1 \
+            out/r3f-friends-first-minute.mp4 \
+            out/r3f-friends-first-minute-qa.jpg \
+            scene-table.md \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "R3F Friends First Minute" \
+            --notes "60-second hybrid Remotion + React Three Fiber opening test with synchronized VOICEVOX subtitles, 12 meaning-based scenes, QA sheet, and scene table."
